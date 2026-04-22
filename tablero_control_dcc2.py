@@ -65,6 +65,18 @@ def extraer_fecha_renovacion(texto, tipo):
             return None
     return None
 
+# --- LÓGICA DE COLOR PARA LAS TABLAS ---
+def color_semaforo(val):
+    """Asigna colores de fondo según el texto de la alerta."""
+    color = ''
+    if val in ['VENCIDO', 'PERDIDA', 'CADUCADO', 'VENCIDA', 'PENDIENTE']:
+        color = 'background-color: #f8d7da; color: #721c24; font-weight: bold;' # Rojo
+    elif val in ['CRÍTICO', 'RIESGO ALTO', 'RENOVAR YA', 'PRÓXIMA']:
+        color = 'background-color: #fff3cd; color: #856404; font-weight: bold;' # Amarillo
+    elif val == 'OK':
+        color = 'background-color: #d4edda; color: #155724;' # Verde
+    return color
+
 @st.cache_data(ttl=600)
 def descargar_excel(url, nombre_debug, hoja):
     try:
@@ -100,7 +112,6 @@ else:
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
-        # --- BUSCADOR DE COLUMNAS MAESTRAS ---
         nombres_id = ["No. Proceso", "No Proceso", "PCC", "PROCESO"]
         col_id_f = buscar_columna_flexible(df_f, nombres_id)
         col_id_p = buscar_columna_flexible(df_p, nombres_id)
@@ -116,10 +127,8 @@ else:
             df['ID_LINK'] = df[c_id].astype(str).apply(normalizar_id)
             for col in df.columns:
                 col_upper = col.upper()
-                # EXCEPCIÓN: No convertir a fecha la columna de No. Registro para evitar errores de formato
                 if "NO. REGISTRO" in col_upper:
                     continue
-                # Solo convertir si contiene FECHA, SOLICITUD o PRACTICA
                 if any(k in col_upper for k in ['FECHA', 'SOLICITUD', 'PRACTICA']):
                     df[col] = pd.to_datetime(df[col], errors='coerce')
 
@@ -142,7 +151,6 @@ else:
             pid = row['ID_LINK']
             etapa = str(row['ETAPA_REAL']).upper()
             
-            # 1. Mandamiento
             alerta_mp = "OK"
             provs = df_p[df_p['ID_LINK'] == pid]
             col_nom_p = buscar_columna_flexible(df_p, ["Nombre Providencia", "Providencia"])
@@ -156,7 +164,6 @@ else:
                     if meses >= 3: alerta_mp = "VENCIDO"
                     elif meses >= 2: alerta_mp = "CRÍTICO"
 
-            # 2. Fuerza Ejecutoria
             alerta_fuerza = "OK"
             val_f_ejec = row.get(col_f_ejec) if col_f_ejec else None
             val_f_not = row.get(col_f_not) if col_f_not else None
@@ -165,7 +172,6 @@ else:
                 if anios_trans >= 5: alerta_fuerza = "PERDIDA"
                 elif anios_trans >= 4: alerta_fuerza = "RIESGO ALTO"
 
-            # 3. Medidas Cautelares
             alerta_medida = "OK"
             b_proc = df_b[df_b['ID_LINK'] == pid]
             col_tipo_b = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)", "Tipo Bien"])
@@ -189,7 +195,6 @@ else:
                     if hoy > f_venc_final: alerta_medida = "CADUCADO"
                     elif (f_venc_final - hoy).days / 365.25 <= 0.5: alerta_medida = "RENOVAR YA"
 
-            # 4. Búsqueda de Bienes
             alerta_busq = "OK"
             bus_proc = df_bus[df_bus['ID_LINK'] == pid]
             col_f_sol = buscar_columna_flexible(df_bus, ["Fecha Solicitud", "Fecha"])
@@ -250,10 +255,14 @@ else:
         elif st.session_state.filtro_alerta == "BUSQUEDA": df_disp = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]
         elif st.session_state.filtro_alerta == "MP": df_disp = df_disp[df_disp['Mandamiento'] != "OK"]
 
-        st.dataframe(df_disp.drop(columns=['ID_LINK']), use_container_width=True, hide_index=True)
+        # --- APLICACIÓN DE COLORES A LA TABLA PRINCIPAL ---
+        cols_alerta = ["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
+        df_styled = df_disp.drop(columns=['ID_LINK']).style.applymap(color_semaforo, subset=cols_alerta)
+        
+        st.dataframe(df_styled, use_container_width=True, hide_index=True)
 
         # =========================================================
-        # 4. FICHA DE DETALLE (CONSULTA POR PROCESO)
+        # 4. FICHA DE DETALLE
         # =========================================================
         st.write("---")
         st.subheader("🧐 Consulta Detallada de Expediente")
@@ -271,23 +280,16 @@ else:
             with c_i1:
                 st.write("### 🏠 Bienes")
                 if not info_b.empty:
-                    # Mapeo de columnas solicitadas
                     col_ejec_b = buscar_columna_flexible(df_b, ["Ejecutado"])
                     col_tipo_b = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)"])
                     col_esp_b = buscar_columna_flexible(df_b, ["Especifico (Casa, Apto, Oficina, Auto, Motocicleta, Ahorros, Corriente, Etc…)"])
                     col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
                     
-                    # Preparamos los datos
                     df_b_detail = info_b.copy()
-                    
-                    # Mantenemos el No. Registro como texto tal cual viene del archivo
                     if col_reg_b:
-                        # Aseguramos que sea string y limpiamos el .0 que a veces pone Excel al leer números
                         df_b_detail[col_reg_b] = df_b_detail[col_reg_b].astype(str).replace(r'\.0$', '', regex=True)
                     
-                    # Selección de columnas (OBSERVACIONES eliminada de la vista detallada)
                     cols_final = [c for c in [col_ejec_b, col_tipo_b, col_esp_b, col_reg_b] if c and c in df_b_detail.columns]
-                    
                     st.dataframe(df_b_detail[cols_final], hide_index=True)
                 else: 
                     st.info("Sin bienes registrados.")
@@ -301,10 +303,8 @@ else:
                     
                     if cols_p_avail:
                         df_p_show = info_p[cols_p_avail].copy()
-                        # Formatear fecha a dd/mm/aaaa si existe la columna
                         if col_f_p in df_p_show.columns:
                             df_p_show = df_p_show.sort_values(col_f_p, ascending=False)
-                            # Convertimos a string con formato dd/mm/aaaa
                             df_p_show[col_f_p] = df_p_show[col_f_p].dt.strftime('%d/%m/%Y')
                         
                         st.dataframe(df_p_show, hide_index=True)
