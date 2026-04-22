@@ -322,4 +322,4 @@ else:
                     st.info("Sin registros de providencias.")
 
     else:
-        st.error("Error crítico: No se pudieron cargar las hojas de Excel. Verifique que existan: 'PARA ENVIAR', 'PROVIDENCIAS', 'BIENES IDENTIFICADOS', 'BUSQUEDA DE BIENES (SOLICITUDES)'.")
+        st.error("Error crítico: No se pudieron cargar las hojas de Excel. Verifique que existan: 'PARA ENVIAR', 'PROVIDENCIAS', 'BIENES IDENTIFICADOS', 'BUSQUEDA DE BIENES (SOLICITUDES'.")
