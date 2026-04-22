@@ -179,7 +179,7 @@ else:
             pid = row.get('ID_LINK', '')
             etapa = str(row['ETAPA_REAL']).upper()
             est_proc = str(row.get(col_estado, "")).upper() if col_estado else ""
-            venc_list = []
+            venc_fuerza = pd.NaT
 
             # 1. Mandamiento
             al_mp = "OK"
@@ -190,19 +190,17 @@ else:
                 ar = provs[provs[cnp].astype(str).str.contains("AVOCO", na=False, case=False)]
                 fa = ar[cfp].min() if not ar.empty else pd.NaT
                 if pd.notna(fa) and "PERSUASIVA" in etapa:
-                    v_mp = fa + timedelta(days=90)
-                    venc_list.append(v_mp)
                     if (hoy - fa).days >= 90: al_mp = "VENCIDO"
                     elif (hoy - fa).days >= 60: al_mp = "CRÍTICO"
 
-            # 2. Fuerza Ejecutoria
+            # 2. Fuerza Ejecutoria (Cálculo Específico para Priorización)
             al_fe = "OK"
             fej = row.get(col_f_ejec)
-            if pd.notna(fej) and pd.isna(row.get(col_f_not)):
-                v_fe = fej + timedelta(days=1826)
-                venc_list.append(v_fe)
-                if (hoy - fej).days / 365.25 >= 5: al_fe = "PERDIDA"
-                elif (hoy - fej).days / 365.25 >= 4: al_fe = "RIESGO ALTO"
+            if pd.notna(fej) and pd.isna(row.get(col_f_not)) and hasattr(fej, 'year'):
+                venc_fuerza = fej + timedelta(days=1826) # 5 años
+                anios_trans = (hoy - fej).days / 365.25
+                if anios_trans >= 5: al_fe = "PERDIDA"
+                elif anios_trans >= 4: al_fe = "RIESGO ALTO"
 
             # 3. Medidas
             al_me = "OK"
@@ -211,6 +209,7 @@ else:
             cfe = buscar_columna_flexible(df_b, ["Fecha Práctica, Inscripción o Registro Embargo"])
             if ctb and cfe:
                 inms = b_pr[b_pr[ctb].astype(str).str.contains("INMUEBLE", na=False, case=False)]
+                vencimientos_medida = []
                 for _, inm in inms.iterrows():
                     fr = inm[cfe]
                     obs = str(inm.get('OBSERVACIONES', ''))
@@ -219,10 +218,9 @@ else:
                     elif pd.notna(fr1): v = fr1 + timedelta(days=5*365.25)
                     elif pd.notna(fr): v = fr + timedelta(days=10*365.25)
                     else: continue
-                    venc_list.append(v)
-                v_validos = [v for v in venc_list if v > datetime(1900, 1, 1)]
-                if v_validos:
-                    fv = min(v_validos)
+                    vencimientos_medida.append(v)
+                if vencimientos_medida:
+                    fv = min(vencimientos_medida)
                     if hoy > fv: al_me = "CADUCADO"
                     elif (fv - hoy).days / 30 <= 6: al_me = "RENOVAR YA"
 
@@ -234,14 +232,10 @@ else:
                 fb = b_bus[cfs].max() if (not b_bus.empty and cfs) else pd.NaT
                 if pd.isna(fb): 
                     al_bu = "PENDIENTE"
-                    venc_list.append(hoy - timedelta(days=1))
                 else:
-                    v_bu = fb + timedelta(days=120)
-                    venc_list.append(v_bu)
                     if (hoy - fb).days >= 120: al_bu = "VENCIDA"
                     elif (hoy - fb).days >= 90: al_bu = "PRÓXIMA"
 
-            f_prox = min(venc_list) if venc_list else pd.NaT
             if any(x != "OK" for x in [al_mp, al_fe, al_me, al_bu]):
                 alertas.append({
                     "No. Proceso": row[buscar_columna_flexible(df_f, ["No. Proceso"])],
@@ -252,7 +246,8 @@ else:
                     "Medidas (Inm)": al_me,
                     "Búsqueda Bienes": al_bu,
                     "ID_LINK": pid,
-                    "Vencimiento_Proximo": f_prox
+                    "Fecha_Ejecutoria": fej,
+                    "Vencimiento_Fuerza": venc_fuerza
                 })
 
         df_alertas = pd.DataFrame(alertas)
@@ -282,18 +277,27 @@ else:
         if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
         cols_pintar = ["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
-        df_styled = df_disp.drop(columns=['ID_LINK', 'Vencimiento_Proximo'])\
+        df_styled = df_disp.drop(columns=['ID_LINK', 'Fecha_Ejecutoria', 'Vencimiento_Fuerza'])\
                               .style.map(color_semaforo, subset=cols_pintar)\
                               .set_properties(**{'text-align': 'center'})\
                               .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
         st.dataframe(df_styled, use_container_width=True, hide_index=True)
 
         st.write("---")
-        st.subheader("📅 Top 10 Urgencias (Acción Prioritaria)")
-        df_prio = df_alertas.sort_values(by="Vencimiento_Proximo", ascending=True).head(10).copy()
-        if not df_prio.empty:
-            df_prio['Días'] = df_prio['Vencimiento_Proximo'].apply(lambda x: f"{(x - hoy).days} d" if pd.notna(x) else "N/A")
-            df_prio['Vencimiento'] = df_prio['Vencimiento_Proximo'].dt.strftime('%d/%m/%Y')
+        st.subheader("🚨 Top 10: Procesos con Riesgo de Fuerza Ejecutoria")
+        st.markdown("_Estos procesos están próximos a cumplir 5 años desde su ejecutoria sin notificación de Mandamiento de Pago._")
+        
+        # Filtramos procesos que tengan fecha de vencimiento de fuerza calculada
+        df_prio_fuerza = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza", ascending=True).head(10).copy()
+        
+        if not df_prio_fuerza.empty:
+            df_prio_fuerza['Días para Prescribir'] = df_prio_fuerza['Vencimiento_Fuerza'].apply(lambda x: f"{(x - hoy).days} d" if (x - hoy).days >= 0 else f"PRESCRITO ({(hoy - x).days} d)")
+            df_prio_fuerza['Fecha Ejecutoria'] = df_prio_fuerza['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
+            df_prio_fuerza['Vencimiento Fuerza'] = df_prio_fuerza['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y')
+            
             st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
-            st.table(df_prio[["No. Proceso", "Sustanciador", "Etapa Actual", "Vencimiento", "Días"]].style.set_properties(**{'text-align': 'center'}))
+            cols_show_f = ["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]
+            st.table(df_prio_fuerza[cols_show_f].style.set_properties(**{'text-align': 'center'}))
             st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("✅ No hay procesos pendientes con riesgo de pérdida de fuerza ejecutoria.")
