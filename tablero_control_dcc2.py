@@ -22,9 +22,9 @@ st.markdown("""
     }
     h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; margin-top: 5px; }
-    .ficha-detalle {
+    .panel-priorizacion {
         background-color: #ffffff; padding: 25px; border-radius: 15px;
-        border-left: 10px solid #003366; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+        border-left: 10px solid #d9534f; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
     /* Estilos para centrar celdas y cabeceras en tablas de Streamlit */
@@ -74,6 +74,8 @@ def extraer_fecha_renovacion(texto, tipo):
 # --- LÓGICA DE COLOR PARA LAS TABLAS ---
 def color_semaforo(val):
     """Asigna colores de fondo según el texto de la alerta."""
+    if not isinstance(val, str): return 'text-align: center;'
+    
     color = ''
     if val in ['VENCIDO', 'PERDIDA', 'CADUCADO', 'VENCIDA', 'PENDIENTE']:
         color = 'background-color: #f8d7da; color: #721c24; font-weight: bold; text-align: center;' # Rojo
@@ -154,15 +156,16 @@ else:
         col_sust = buscar_columna_flexible(df_f, ["Sustanciador a Cargo", "Sustanciador"])
         col_f_ejec = buscar_columna_flexible(df_f, ["Fecha Ejecutoria"])
         col_f_not = buscar_columna_flexible(df_f, ["Fecha Not MP"])
-        # Identificar columna de estado del proceso
         col_estado = buscar_columna_flexible(df_f, ["Estado Proceso en el Mes que se Rinde"])
 
         for _, row in df_f.iterrows():
             pid = row['ID_LINK']
             etapa = str(row['ETAPA_REAL']).upper()
-            # Obtener estado del proceso
             estado_proceso = str(row.get(col_estado, "")).upper() if col_estado else ""
             
+            fechas_vencimiento_proceso = []
+
+            # 1. Mandamiento
             alerta_mp = "OK"
             provs = df_p[df_p['ID_LINK'] == pid]
             col_nom_p = buscar_columna_flexible(df_p, ["Nombre Providencia", "Providencia"])
@@ -172,18 +175,24 @@ else:
                 avoco_row = provs[provs[col_nom_p].astype(str).str.contains("AVOCO", na=False, case=False)]
                 f_avoco = avoco_row[col_f_p].min() if not avoco_row.empty else pd.NaT
                 if pd.notna(f_avoco) and hasattr(f_avoco, 'year') and "PERSUASIVA" in etapa:
+                    venc_mp = f_avoco + timedelta(days=90)
+                    fechas_vencimiento_proceso.append(venc_mp)
                     meses = (hoy.year - f_avoco.year) * 12 + (hoy.month - f_avoco.month)
                     if meses >= 3: alerta_mp = "VENCIDO"
                     elif meses >= 2: alerta_mp = "CRÍTICO"
 
+            # 2. Fuerza Ejecutoria
             alerta_fuerza = "OK"
             val_f_ejec = row.get(col_f_ejec) if col_f_ejec else None
             val_f_not = row.get(col_f_not) if col_f_not else None
             if pd.notna(val_f_ejec) and pd.isna(val_f_not) and hasattr(val_f_ejec, 'year'):
+                venc_fuerza = val_f_ejec + timedelta(days=1826)
+                fechas_vencimiento_proceso.append(venc_fuerza)
                 anios_trans = (hoy - val_f_ejec).days / 365.25
                 if anios_trans >= 5: alerta_fuerza = "PERDIDA"
                 elif anios_trans >= 4: alerta_fuerza = "RIESGO ALTO"
 
+            # 3. Medidas Cautelares
             alerta_medida = "OK"
             b_proc = df_b[df_b['ID_LINK'] == pid]
             col_tipo_b = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)", "Tipo Bien"])
@@ -191,7 +200,6 @@ else:
             
             if col_tipo_b and col_f_emb:
                 inms = b_proc[b_proc[col_tipo_b].astype(str).str.contains("INMUEBLE", na=False, case=False)]
-                vencimientos = []
                 for _, inmueble in inms.iterrows():
                     f_reg = inmueble[col_f_emb]
                     obs = inmueble.get('OBSERVACIONES', '')
@@ -201,26 +209,35 @@ else:
                     elif pd.notna(f_r1): venc = f_r1 + timedelta(days=5*365.25)
                     elif pd.notna(f_reg) and hasattr(f_reg, 'year'): venc = f_reg + timedelta(days=10*365.25)
                     else: continue
-                    vencimientos.append(venc)
-                if vencimientos:
-                    f_venc_final = min(vencimientos)
+                    fechas_vencimiento_proceso.append(venc)
+                
+                # Estado para la tabla principal
+                vencimientos_validos = [v for v in fechas_vencimiento_proceso if v > datetime(1900, 1, 1)] # Limpieza
+                if vencimientos_validos:
+                    f_venc_final = min(vencimientos_validos)
                     if hoy > f_venc_final: alerta_medida = "CADUCADO"
                     elif (f_venc_final - hoy).days / 365.25 <= 0.5: alerta_medida = "RENOVAR YA"
 
             # 4. Búsqueda de Bienes
             alerta_busq = "OK"
-            # Si el proceso está ARCHIVADO, no se hace búsqueda (se marca OK)
             if "ARCHIVADO" in estado_proceso:
                 alerta_busq = "OK"
             else:
                 bus_proc = df_bus[df_bus['ID_LINK'] == pid]
                 col_f_sol = buscar_columna_flexible(df_bus, ["Fecha Solicitud", "Fecha"])
                 f_ult_bus = bus_proc[col_f_sol].max() if (not bus_proc.empty and col_f_sol) else pd.NaT
-                if pd.isna(f_ult_bus): alerta_busq = "PENDIENTE"
+                if pd.isna(f_ult_bus): 
+                    alerta_busq = "PENDIENTE"
+                    fechas_vencimiento_proceso.append(hoy - timedelta(days=1)) # Prioridad máxima
                 elif hasattr(f_ult_bus, 'year'):
+                    venc_busq = f_ult_bus + timedelta(days=120)
+                    fechas_vencimiento_proceso.append(venc_busq)
                     m_bus = (hoy.year - f_ult_bus.year) * 12 + (hoy.month - f_ult_bus.month)
                     if m_bus >= 4: alerta_busq = "VENCIDA"
                     elif m_bus >= 3: alerta_busq = "PRÓXIMA"
+
+            # Calcular fecha de vencimiento más próxima para este proceso
+            f_proxima = min(fechas_vencimiento_proceso) if fechas_vencimiento_proceso else pd.NaT
 
             alertas.append({
                 "No. Proceso": row[col_id_f],
@@ -230,22 +247,22 @@ else:
                 "Fuerza Ejecutoria": alerta_fuerza,
                 "Medidas (Inm)": alerta_medida,
                 "Búsqueda Bienes": alerta_busq,
-                "ID_LINK": pid
+                "ID_LINK": pid,
+                "Vencimiento_Proximo": f_proxima
             })
 
         df_alertas = pd.DataFrame(alertas)
 
-        # --- FILTRAR PROCESOS CON TODO OK ---
+        # Filtro: Solo procesos con alertas
         cols_alerta = ["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
         mask_alguna_alerta = (df_alertas["Mandamiento"] != "OK") | \
                              (df_alertas["Fuerza Ejecutoria"] != "OK") | \
                              (df_alertas["Medidas (Inm)"] != "OK") | \
                              (df_alertas["Búsqueda Bienes"] != "OK")
-        
         df_alertas = df_alertas[mask_alguna_alerta].reset_index(drop=True)
 
         # =========================================================
-        # 3. INTERFAZ DE USUARIO
+        # 3. INTERFAZ DE USUARIO (KPIs)
         # =========================================================
         with st.sidebar:
             st.header("🔍 Filtros de Gestión")
@@ -281,68 +298,48 @@ else:
         elif st.session_state.filtro_alerta == "BUSQUEDA": df_disp = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]
         elif st.session_state.filtro_alerta == "MP": df_disp = df_disp[df_disp['Mandamiento'] != "OK"]
 
-        # --- APLICACIÓN DE COLORES Y CENTRADO ---
-        cols_presentes = [c for c in cols_alerta if c in df_disp.columns]
-        
-        df_to_show = df_disp.drop(columns=['ID_LINK'])
-        
-        # Aplicar el estilo
-        df_styled = df_to_show.style.map(color_semaforo, subset=cols_presentes)\
+        # Tabla Principal Styled
+        df_to_show = df_disp.drop(columns=['ID_LINK', 'Vencimiento_Proximo'])
+        df_styled = df_to_show.style.map(color_semaforo, subset=cols_alerta)\
                                    .set_properties(**{'text-align': 'center'})\
                                    .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
         
         st.dataframe(df_styled, use_container_width=True, hide_index=True)
 
         # =========================================================
-        # 4. FICHA DE DETALLE
+        # 4. CALENDARIO DE PRIORIZACIÓN: TOP 10 URGENCIAS
         # =========================================================
         st.write("---")
-        st.subheader("🧐 Consulta Detallada de Expediente")
-        exp_sel = st.selectbox("Seleccione un proceso:", ["-- Seleccione --"] + sorted(df_disp['No. Proceso'].unique().tolist()))
+        st.subheader("📅 Calendario de Priorización: Top 10 Urgencias")
+        st.info("Esta sección identifica los 10 expedientes que requieren atención inmediata basándose en su fecha de vencimiento más próxima.")
 
-        if exp_sel != "-- Seleccione --":
-            p_id_sel = normalizar_id(exp_sel)
-            info_f = df_f[df_f['ID_LINK'] == p_id_sel].iloc[0]
-            info_b = df_b[df_b['ID_LINK'] == p_id_sel]
-            info_p = df_p[df_p['ID_LINK'] == p_id_sel]
+        # Ordenar por fecha de vencimiento próxima
+        df_prioridad = df_alertas.sort_values(by="Vencimiento_Proximo", ascending=True).head(10).copy()
+        
+        if not df_prioridad.empty:
+            # Crear columna de días restantes para mayor claridad
+            def calcular_dias_restantes(venc):
+                if pd.isna(venc): return "N/A"
+                diff = (venc - hoy).days
+                return f"{diff} días" if diff >= 0 else f"VENCIDO ({abs(diff)} días)"
+
+            df_prioridad['Días Restantes'] = df_prioridad['Vencimiento_Proximo'].apply(calcular_dias_restantes)
+            df_prioridad['Vencimiento'] = df_prioridad['Vencimiento_Proximo'].dt.strftime('%d/%m/%Y')
+
+            # Seleccionar columnas relevantes para la priorización
+            cols_prioridad = ["No. Proceso", "Sustanciador", "Etapa Actual", "Vencimiento", "Días Restantes"]
             
-            st.markdown(f'<div class="ficha-detalle"><h3>EXPEDIENTE: {exp_sel}</h3><p><b>Sustanciador:</b> {info_f.get(col_sust)}</p></div>', unsafe_allow_html=True)
+            # Estilo para la tabla de priorización (Borde rojo para énfasis)
+            st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
+            df_prioridad_styled = df_prioridad[cols_prioridad].style.set_properties(**{
+                'text-align': 'center',
+                'font-weight': 'bold'
+            }).set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
             
-            c_i1, c_i2 = st.columns(2)
-            with c_i1:
-                st.write("### 🏠 Bienes")
-                if not info_b.empty:
-                    col_ejec_b = buscar_columna_flexible(df_b, ["Ejecutado"])
-                    col_tipo_b = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)"])
-                    col_esp_b = buscar_columna_flexible(df_b, ["Especifico (Casa, Apto, Oficina, Auto, Motocicleta, Ahorros, Corriente, Etc…)"])
-                    col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
-                    
-                    df_b_detail = info_b.copy()
-                    if col_reg_b:
-                        df_b_detail[col_reg_b] = df_b_detail[col_reg_b].astype(str).replace(r'\.0$', '', regex=True)
-                    
-                    cols_final = [c for c in [col_ejec_b, col_tipo_b, col_esp_b, col_reg_b] if c and c in df_b_detail.columns]
-                    
-                    st.dataframe(df_b_detail[cols_final].style.set_properties(**{'text-align': 'center'})\
-                                                       .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}]), hide_index=True)
-                else: 
-                    st.info("Sin bienes registrados.")
-            
-            with c_i2:
-                st.write("### ⚖️ Providencias")
-                if not info_p.empty:
-                    cols_p_avail = []
-                    if col_f_p and col_f_p in info_p.columns: cols_p_avail.append(col_f_p)
-                    if col_nom_p and col_nom_p in info_p.columns: cols_p_avail.append(col_nom_p)
-                    
-                    if cols_p_avail:
-                        df_p_show = info_p[cols_p_avail].copy()
-                        if col_f_p in df_p_show.columns:
-                            df_p_show = df_p_show.sort_values(col_f_p, ascending=False)
-                            df_p_show[col_f_p] = df_p_show[col_f_p].dt.strftime('%d/%m/%Y')
-                        
-                        st.dataframe(df_p_show.style.set_properties(**{'text-align': 'center'})\
-                                                   .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}]), hide_index=True)
-                    else:
-                        st.warning("⚠️ No se pudieron identificar las columnas de fecha o nombre en Providencias.")
-                else: st.info("Sin providencias.")
+            st.table(df_prioridad_styled)
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("🎉 No se encontraron urgencias críticas pendientes.")
+
+    else:
+        st.error("Error al cargar las hojas. Verifique los nombres en Excel.")
