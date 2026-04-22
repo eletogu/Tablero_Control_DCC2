@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Dashboard de Control DCC2", layout="wide")
 
-# Estilos CSS personalizados para simular entorno profesional CGR
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -28,23 +27,31 @@ st.markdown("""
         border-left: 10px solid #003366; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
-    .status-alert { font-weight: bold; padding: 2px 6px; border-radius: 4px; }
+    .error-diag { padding: 15px; background-color: #f8d7da; color: #721c24; border-radius: 10px; border: 1px solid #f5c6cb; margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- INICIALIZACIÓN DE ESTADO DE SESIÓN ---
 if 'filtro_alerta' not in st.session_state:
     st.session_state.filtro_alerta = "TODAS"
 
-# --- FUNCIONES DE LIMPIEZA Y EXTRACCIÓN ---
+# --- FUNCIONES DE LIMPIEZA Y NORMALIZACIÓN ---
+def normalizar_texto(t):
+    if pd.isna(t) or t == '': return ""
+    return "".join((c for c in unicodedata.normalize('NFD', str(t).upper()) if unicodedata.category(c) != 'Mn')).strip()
+
 def normalizar_id(v):
     if pd.isna(v): return ""
     return re.sub(r'[^A-Z0-9]', '', str(v).strip().upper().replace('.0', ''))
 
+def buscar_columna_flexible(df, posibles_nombres):
+    """Busca una columna comparando nombres normalizados."""
+    posibles_norm = [normalizar_texto(n) for n in posibles_nombres]
+    for col in df.columns:
+        if normalizar_texto(col) in posibles_norm:
+            return col
+    return None
+
 def extraer_fecha_renovacion(texto, tipo):
-    """
-    Detecta 'Renovación X dd/mm/aaaa' en la columna Observaciones
-    """
     if pd.isna(texto): return None
     patron = f"RENOVACION {tipo}\\s+(\\d{{2}}/\\d{{2}}/\\d{{4}})"
     match = re.search(patron, str(texto).upper())
@@ -74,31 +81,57 @@ st.markdown("<h1 style='text-align: center;'>📊 CENTRO DE CONTROL OPERATIVO DC
 links = st.secrets.get("links_onedrive", None)
 
 if not links:
-    st.warning("⚠️ Configure los enlaces en los 'Secrets' de Streamlit bajo la sección [links_onedrive].")
+    st.warning("⚠️ Configure los enlaces en los 'Secrets' de Streamlit.")
 else:
-    with st.spinner('Actualizando inteligencia de procesos...'):
+    with st.spinner('Sincronizando archivos con la nube...'):
         bases = {
             "FUIC": descargar_excel(links.get("FUIC"), "FUIC", "PARA ENVIAR"),
             "PROVIDENCIAS": descargar_excel(links.get("PROVIDENCIAS"), "PROVIDENCIAS", "PROVIDENCIAS"),
             "BIENES": descargar_excel(links.get("BIENES"), "BIENES IDENTIFICADOS", "BIENES IDENTIFICADOS"),
-            # Corregido: Nombre exacto de la hoja sin el paréntesis de cierre
             "BUSQUEDAS": descargar_excel(links.get("BUSQUEDA_BIENES"), "BUSQUEDA DE BIENES", "BUSQUEDA DE BIENES (SOLICITUDES")
         }
 
-    if all(not isinstance(v, str) for v in bases.values()):
+    # Verificación de carga
+    errores_carga = [v for v in bases.values() if isinstance(v, str)]
+    if errores_carga:
+        for err in errores_carga: st.error(err)
+    else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
-        # Unificación de Identificadores y Fechas
-        for df in [df_f, df_p, df_b, df_bus]:
-            # Evitar error si hay columnas duplicadas en Excel (toma la primera)
-            if 'No. Proceso' in df.columns:
-                df['ID_LINK'] = df['No. Proceso'].iloc[:, 0].apply(normalizar_id) if isinstance(df['No. Proceso'], pd.DataFrame) else df['No. Proceso'].apply(normalizar_id)
-            
+        # --- BUSCADOR DE COLUMNAS MAESTRAS ---
+        # Definimos los nombres esperados para el ID del proceso
+        nombres_id = ["No. Proceso", "No Proceso", "PCC", "PROCESO"]
+        
+        col_id_f = buscar_columna_flexible(df_f, nombres_id)
+        col_id_p = buscar_columna_flexible(df_p, nombres_id)
+        col_id_b = buscar_columna_flexible(df_b, nombres_id)
+        col_id_bus = buscar_columna_flexible(df_bus, nombres_id)
+
+        # Validación de integridad
+        if not all([col_id_f, col_id_p, col_id_b, col_id_bus]):
+            st.markdown('<div class="error-diag"><h3>❌ Error de Estructura Detectado</h3><p>No se encontró la columna <b>"No. Proceso"</b> en uno o más archivos.</p></div>', unsafe_allow_html=True)
+            cols_info = {"FUIC": col_id_f, "PROVIDENCIAS": col_id_p, "BIENES": col_id_b, "BÚSQUEDAS": col_id_bus}
+            for k, v in cols_info.items():
+                if not v: st.write(f"⚠️ El archivo **{k}** no tiene la columna 'No. Proceso'. Por favor verifique el nombre exacto.")
+            st.stop()
+
+        # --- PREPARACIÓN DE DATAFRAMES ---
+        dfs_mapeo = {
+            "FUIC": (df_f, col_id_f),
+            "PROVIDENCIAS": (df_p, col_id_p),
+            "BIENES": (df_b, col_id_b),
+            "BUSQUEDAS": (df_bus, col_id_bus)
+        }
+
+        for nombre, (df, col_orig) in dfs_mapeo.items():
+            # Crear ID_LINK uniforme
+            df['ID_LINK'] = df[col_orig].astype(str).apply(normalizar_id)
+            # Convertir fechas
             for col in df.columns:
                 if any(k in col.upper() for k in ['FECHA', 'SOLICITUD', 'REGISTRO', 'PRACTICA']):
                     df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        # Lógica de Etapa Actual Dinámica
+        # --- LÓGICA DE ETAPA ACTUAL ---
         cols_etapas = [c for c in df_f.columns if 'ETAPA' in c.upper()]
         def get_current_stage(row):
             for col in reversed(cols_etapas):
@@ -107,91 +140,83 @@ else:
             return "NO REGISTRA"
         df_f['ETAPA_REAL'] = df_f.apply(get_current_stage, axis=1)
 
-        # --- MOTOR DE AUDITORÍA JURÍDICA ---
+        # --- MOTOR DE AUDITORÍA ---
         hoy = datetime.now()
         alertas = []
+        
+        # Identificar columnas adicionales en FUIC de forma flexible
+        col_sust = buscar_columna_flexible(df_f, ["Sustanciador a Cargo", "Sustanciador"]) or col_id_f
+        col_f_ejec = buscar_columna_flexible(df_f, ["Fecha Ejecutoria"]) or col_id_f
+        col_f_not = buscar_columna_flexible(df_f, ["Fecha Not MP"]) or col_id_f
 
         for _, row in df_f.iterrows():
             pid = row['ID_LINK']
             etapa = str(row['ETAPA_REAL']).upper()
             
-            # 1. Alerta Mandamiento (3 meses desde Avoco en Persuasiva)
+            # 1. Mandamiento (3 meses desde Avoco)
             alerta_mp = "OK"
             provs = df_p[df_p['ID_LINK'] == pid]
-            col_nom_prov = 'Nombre Providencia'
-            if col_nom_prov in provs.columns:
-                nombres = provs[col_nom_prov].iloc[:, 0] if isinstance(provs[col_nom_prov], pd.DataFrame) else provs[col_nom_prov]
-                avoco_mask = nombres.str.contains("AVOCO", na=False, case=False)
-                avoco_row = provs[avoco_mask]
-                
-                col_fecha_prov = 'Fecha Providencia'
-                fechas_p = avoco_row[col_fecha_prov].iloc[:, 0] if isinstance(avoco_row[col_fecha_prov], pd.DataFrame) else avoco_row[col_fecha_prov]
-                f_avoco = fechas_p.min() if not avoco_row.empty else pd.NaT
-                
-                if pd.notna(f_avoco) and hasattr(f_avoco, 'year') and "PERSUASIVA" in etapa:
+            col_nom_p = buscar_columna_flexible(df_p, ["Nombre Providencia", "Providencia"])
+            col_f_p = buscar_columna_flexible(df_p, ["Fecha Providencia", "Fecha"])
+            
+            if col_nom_p and col_f_p:
+                avoco_row = provs[provs[col_nom_p].astype(str).str.contains("AVOCO", na=False, case=False)]
+                f_avoco = avoco_row[col_f_p].min() if not avoco_row.empty else pd.NaT
+                if pd.notna(f_avoco) and "PERSUASIVA" in etapa:
                     meses = (hoy.year - f_avoco.year) * 12 + (hoy.month - f_avoco.month)
                     if meses >= 3: alerta_mp = "VENCIDO"
                     elif meses >= 2: alerta_mp = "CRÍTICO"
 
             # 2. Fuerza Ejecutoria (5 años)
             alerta_fuerza = "OK"
-            f_ejec = row['Fecha Ejecutoria'].iloc[0] if isinstance(row.get('Fecha Ejecutoria'), pd.Series) else row.get('Fecha Ejecutoria')
-            f_not_mp = row['Fecha Not MP'].iloc[0] if isinstance(row.get('Fecha Not MP'), pd.Series) else row.get('Fecha Not MP')
-            
-            if pd.notna(f_ejec) and pd.isna(f_not_mp) and hasattr(f_ejec, 'year'):
-                anios_trans = (hoy - f_ejec).days / 365.25
+            val_f_ejec = row.get(col_f_ejec)
+            val_f_not = row.get(col_f_not)
+            if pd.notna(val_f_ejec) and pd.isna(val_f_not):
+                anios_trans = (hoy - val_f_ejec).days / 365.25
                 if anios_trans >= 5: alerta_fuerza = "PERDIDA"
                 elif anios_trans >= 4: alerta_fuerza = "RIESGO ALTO"
 
-            # 3. Medidas Cautelares (Lógica Multi-Bien e Inmuebles)
+            # 3. Medidas Cautelares (10 años - Inmuebles)
             alerta_medida = "OK"
             b_proc = df_b[df_b['ID_LINK'] == pid]
-            col_t_b = 'Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)'
-            tipos_b = b_proc[col_t_b].iloc[:, 0] if isinstance(b_proc[col_t_b], pd.DataFrame) else b_proc[col_t_b]
-            inms = b_proc[tipos_b.str.contains("INMUEBLE", na=False, case=False)]
+            col_tipo_b = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)", "Tipo Bien"])
+            col_f_emb = buscar_columna_flexible(df_b, ["Fecha Práctica, Inscripción o Registro Embargo", "Fecha Registro"])
             
-            if not inms.empty:
-                vencimientos_inm = []
-                col_f_reg = 'Fecha Práctica, Inscripción o Registro Embargo'
+            if col_tipo_b and col_f_emb:
+                inms = b_proc[b_proc[col_tipo_b].astype(str).str.contains("INMUEBLE", na=False, case=False)]
+                vencimientos = []
                 for _, inmueble in inms.iterrows():
-                    f_reg = inmueble[col_f_reg].iloc[0] if isinstance(inmueble.get(col_f_reg), pd.Series) else inmueble.get(col_f_reg)
+                    f_reg = inmueble[col_f_emb]
                     obs = inmueble.get('OBSERVACIONES', '')
+                    f_r2 = extraer_fecha_renovacion(obs, "2")
+                    f_r1 = extraer_fecha_renovacion(obs, "1")
                     
-                    f_renov2 = extraer_fecha_renovacion(obs, "2")
-                    f_renov1 = extraer_fecha_renovacion(obs, "1")
-                    
-                    if pd.notna(f_renov2):
-                        vencimiento = f_renov2 + timedelta(days=5*365.25)
-                    elif pd.notna(f_renov1):
-                        vencimiento = f_renov1 + timedelta(days=5*365.25)
-                    elif pd.notna(f_reg) and hasattr(f_reg, 'year'):
-                        vencimiento = f_reg + timedelta(days=10*365.25)
-                    else:
-                        continue
-                    vencimientos_inm.append(vencimiento)
+                    if pd.notna(f_r2): venc = f_r2 + timedelta(days=5*365.25)
+                    elif pd.notna(f_r1): venc = f_r1 + timedelta(days=5*365.25)
+                    elif pd.notna(f_reg): venc = f_reg + timedelta(days=10*365.25)
+                    else: continue
+                    vencimientos.append(venc)
                 
-                if vencimientos_inm:
-                    f_venc_final = min(vencimientos_inm)
-                    anios_rest = (f_venc_final - hoy).days / 365.25
+                if vencimientos:
+                    f_venc_final = min(vencimientos)
                     if hoy > f_venc_final: alerta_medida = "CADUCADO"
-                    elif anios_rest <= 0.5: alerta_medida = "RENOVAR YA"
+                    elif (f_venc_final - hoy).days / 365.25 <= 0.5: alerta_medida = "RENOVAR YA"
 
             # 4. Búsqueda de Bienes (4 meses)
             alerta_busq = "OK"
             bus_proc = df_bus[df_bus['ID_LINK'] == pid]
-            col_f_bus = 'Fecha Solicitud'
-            f_bus_series = bus_proc[col_f_bus].iloc[:, 0] if isinstance(bus_proc.get(col_f_bus), pd.DataFrame) else bus_proc.get(col_f_bus)
-            f_ult_bus = f_bus_series.max() if not bus_proc.empty else pd.NaT
+            col_f_sol = buscar_columna_flexible(df_bus, ["Fecha Solicitud", "Fecha"])
+            f_ult_bus = bus_proc[col_f_sol].max() if (not bus_proc.empty and col_f_sol) else pd.NaT
             
             if pd.isna(f_ult_bus): alerta_busq = "PENDIENTE"
-            elif hasattr(f_ult_bus, 'year'):
+            else:
                 m_bus = (hoy.year - f_ult_bus.year) * 12 + (hoy.month - f_ult_bus.month)
                 if m_bus >= 4: alerta_busq = "VENCIDA"
                 elif m_bus >= 3: alerta_busq = "PRÓXIMA"
 
             alertas.append({
-                "No. Proceso": row['No. Proceso'].iloc[0] if isinstance(row['No. Proceso'], pd.Series) else row['No. Proceso'],
-                "Sustanciador": responsable if isinstance((responsable := row.get('Sustanciador a Cargo')), str) else (responsable.iloc[0] if isinstance(responsable, pd.Series) else "N/A"),
+                "No. Proceso": row[col_id_f],
+                "Sustanciador": row.get(col_sust, "N/A"),
                 "Etapa Actual": etapa,
                 "Mandamiento": alerta_mp,
                 "Fuerza Ejecutoria": alerta_fuerza,
@@ -214,39 +239,39 @@ else:
 
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            count = len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"])
-            st.metric("Riesgo Fuerza", count)
-            if st.button(f"Ver {count} procesos", key="btn_fuerza"): st.session_state.filtro_alerta = "FUERZA"
+            cnt = len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"])
+            st.metric("Riesgo Fuerza", cnt)
+            if st.button(f"Ver {cnt} procesos", key="k1"): st.session_state.filtro_alerta = "FUERZA"
         with c2:
-            count = len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"])
-            st.metric("Medidas x Renovar", count)
-            if st.button(f"Ver {count} procesos", key="btn_medidas"): st.session_state.filtro_alerta = "MEDIDAS"
+            cnt = len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"])
+            st.metric("Medidas x Renovar", cnt)
+            if st.button(f"Ver {cnt} procesos", key="k2"): st.session_state.filtro_alerta = "MEDIDAS"
         with c3:
-            count = len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])])
-            st.metric("Búsquedas Vencidas", count)
-            if st.button(f"Ver {count} procesos", key="btn_busq"): st.session_state.filtro_alerta = "BUSQUEDA"
+            cnt = len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])])
+            st.metric("Búsquedas Vencidas", cnt)
+            if st.button(f"Ver {cnt} procesos", key="k3"): st.session_state.filtro_alerta = "BUSQUEDA"
         with c4:
-            count = len(df_alertas[df_alertas['Mandamiento'] != "OK"])
-            st.metric("Términos MP", count)
-            if st.button(f"Ver {count} procesos", key="btn_mp"): st.session_state.filtro_alerta = "MP"
+            cnt = len(df_alertas[df_alertas['Mandamiento'] != "OK"])
+            st.metric("Términos MP", cnt)
+            if st.button(f"Ver {cnt} procesos", key="k4"): st.session_state.filtro_alerta = "MP"
 
         st.write("---")
-        df_display = df_alertas.copy()
-        if sel_sust: df_display = df_display[df_display['Sustanciador'].isin(sel_sust)]
+        df_disp = df_alertas.copy()
+        if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
-        if st.session_state.filtro_alerta == "FUERZA": df_display = df_display[df_display['Fuerza Ejecutoria'] != "OK"]
-        elif st.session_state.filtro_alerta == "MEDIDAS": df_display = df_display[df_display['Medidas (Inm)'] != "OK"]
-        elif st.session_state.filtro_alerta == "BUSQUEDA": df_display = df_display[df_display['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]
-        elif st.session_state.filtro_alerta == "MP": df_display = df_display[df_display['Mandamiento'] != "OK"]
+        if st.session_state.filtro_alerta == "FUERZA": df_disp = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"]
+        elif st.session_state.filtro_alerta == "MEDIDAS": df_disp = df_disp[df_disp['Medidas (Inm)'] != "OK"]
+        elif st.session_state.filtro_alerta == "BUSQUEDA": df_disp = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]
+        elif st.session_state.filtro_alerta == "MP": df_disp = df_disp[df_disp['Mandamiento'] != "OK"]
 
-        st.dataframe(df_display.drop(columns=['ID_LINK']), use_container_width=True, hide_index=True)
+        st.dataframe(df_disp.drop(columns=['ID_LINK']), use_container_width=True, hide_index=True)
 
         # =========================================================
         # 4. FICHA DE DETALLE
         # =========================================================
         st.write("---")
         st.subheader("🧐 Consulta Detallada de Expediente")
-        exp_sel = st.selectbox("Seleccione un proceso:", ["-- Seleccione --"] + sorted(df_display['No. Proceso'].unique().tolist()))
+        exp_sel = st.selectbox("Seleccione un proceso:", ["-- Seleccione --"] + sorted(df_disp['No. Proceso'].unique().tolist()))
 
         if exp_sel != "-- Seleccione --":
             p_id_sel = normalizar_id(exp_sel)
@@ -254,20 +279,14 @@ else:
             info_b = df_b[df_b['ID_LINK'] == p_id_sel]
             info_p = df_p[df_p['ID_LINK'] == p_id_sel]
             
-            st.markdown(f"""
-            <div class="ficha-detalle">
-                <h3>EXPEDIENTE: {exp_sel}</h3>
-                <p><b>Sustanciador:</b> {df_alertas[df_alertas['ID_LINK']==p_id_sel]['Sustanciador'].values[0]}</p>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f'<div class="ficha-detalle"><h3>EXPEDIENTE: {exp_sel}</h3><p><b>Sustanciador:</b> {info_f.get(col_sust)}</p></div>', unsafe_allow_html=True)
             
-            c_inf1, c_inf2 = st.columns(2)
-            with c_inf1:
+            c_i1, c_i2 = st.columns(2)
+            with c_i1:
                 st.write("### 🏠 Bienes")
-                if not info_b.empty: st.table(info_b[[col_t_b, 'OBSERVACIONES']])
+                if not info_b.empty: st.table(info_b[[col_tipo_b, 'OBSERVACIONES']])
                 else: st.info("Sin bienes registrados.")
-            with c_inf2:
+            with c_i2:
                 st.write("### ⚖️ Providencias")
-                if not info_p.empty: st.dataframe(info_p[['Fecha Providencia', 'Nombre Providencia']].sort_values('Fecha Providencia', ascending=False), hide_index=True)
+                if not info_p.empty: st.dataframe(info_p[[col_f_p, col_nom_p]].sort_values(col_f_p, ascending=False), hide_index=True)
                 else: st.info("Sin providencias.")
-    else:
-        st.error("Error al cargar las hojas. Verifique los nombres en Excel.")
