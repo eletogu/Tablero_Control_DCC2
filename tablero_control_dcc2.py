@@ -27,7 +27,13 @@ st.markdown("""
         border-left: 10px solid #003366; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
-    .error-diag { padding: 15px; background-color: #f8d7da; color: #721c24; border-radius: 10px; border: 1px solid #f5c6cb; margin-bottom: 10px; }
+    /* Estilos para centrar celdas y cabeceras en tablas de Streamlit */
+    [data-testid="stDataFrame"] td {
+        text-align: center !important;
+    }
+    [data-testid="stTable"] th {
+        text-align: center !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -70,11 +76,13 @@ def color_semaforo(val):
     """Asigna colores de fondo según el texto de la alerta."""
     color = ''
     if val in ['VENCIDO', 'PERDIDA', 'CADUCADO', 'VENCIDA', 'PENDIENTE']:
-        color = 'background-color: #f8d7da; color: #721c24; font-weight: bold;' # Rojo
+        color = 'background-color: #f8d7da; color: #721c24; font-weight: bold; text-align: center;' # Rojo
     elif val in ['CRÍTICO', 'RIESGO ALTO', 'RENOVAR YA', 'PRÓXIMA']:
-        color = 'background-color: #fff3cd; color: #856404; font-weight: bold;' # Amarillo
+        color = 'background-color: #fff3cd; color: #856404; font-weight: bold; text-align: center;' # Amarillo
     elif val == 'OK':
-        color = 'background-color: #d4edda; color: #155724;' # Verde
+        color = 'background-color: #d4edda; color: #155724; text-align: center;' # Verde
+    else:
+        color = 'text-align: center;'
     return color
 
 @st.cache_data(ttl=600)
@@ -146,10 +154,14 @@ else:
         col_sust = buscar_columna_flexible(df_f, ["Sustanciador a Cargo", "Sustanciador"])
         col_f_ejec = buscar_columna_flexible(df_f, ["Fecha Ejecutoria"])
         col_f_not = buscar_columna_flexible(df_f, ["Fecha Not MP"])
+        # Identificar columna de estado del proceso
+        col_estado = buscar_columna_flexible(df_f, ["Estado Proceso en el Mes que se Rinde"])
 
         for _, row in df_f.iterrows():
             pid = row['ID_LINK']
             etapa = str(row['ETAPA_REAL']).upper()
+            # Obtener estado del proceso
+            estado_proceso = str(row.get(col_estado, "")).upper() if col_estado else ""
             
             alerta_mp = "OK"
             provs = df_p[df_p['ID_LINK'] == pid]
@@ -195,15 +207,20 @@ else:
                     if hoy > f_venc_final: alerta_medida = "CADUCADO"
                     elif (f_venc_final - hoy).days / 365.25 <= 0.5: alerta_medida = "RENOVAR YA"
 
+            # 4. Búsqueda de Bienes
             alerta_busq = "OK"
-            bus_proc = df_bus[df_bus['ID_LINK'] == pid]
-            col_f_sol = buscar_columna_flexible(df_bus, ["Fecha Solicitud", "Fecha"])
-            f_ult_bus = bus_proc[col_f_sol].max() if (not bus_proc.empty and col_f_sol) else pd.NaT
-            if pd.isna(f_ult_bus): alerta_busq = "PENDIENTE"
-            elif hasattr(f_ult_bus, 'year'):
-                m_bus = (hoy.year - f_ult_bus.year) * 12 + (hoy.month - f_ult_bus.month)
-                if m_bus >= 4: alerta_busq = "VENCIDA"
-                elif m_bus >= 3: alerta_busq = "PRÓXIMA"
+            # Si el proceso está ARCHIVADO, no se hace búsqueda (se marca OK)
+            if "ARCHIVADO" in estado_proceso:
+                alerta_busq = "OK"
+            else:
+                bus_proc = df_bus[df_bus['ID_LINK'] == pid]
+                col_f_sol = buscar_columna_flexible(df_bus, ["Fecha Solicitud", "Fecha"])
+                f_ult_bus = bus_proc[col_f_sol].max() if (not bus_proc.empty and col_f_sol) else pd.NaT
+                if pd.isna(f_ult_bus): alerta_busq = "PENDIENTE"
+                elif hasattr(f_ult_bus, 'year'):
+                    m_bus = (hoy.year - f_ult_bus.year) * 12 + (hoy.month - f_ult_bus.month)
+                    if m_bus >= 4: alerta_busq = "VENCIDA"
+                    elif m_bus >= 3: alerta_busq = "PRÓXIMA"
 
             alertas.append({
                 "No. Proceso": row[col_id_f],
@@ -217,6 +234,15 @@ else:
             })
 
         df_alertas = pd.DataFrame(alertas)
+
+        # --- FILTRAR PROCESOS CON TODO OK ---
+        cols_alerta = ["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
+        mask_alguna_alerta = (df_alertas["Mandamiento"] != "OK") | \
+                             (df_alertas["Fuerza Ejecutoria"] != "OK") | \
+                             (df_alertas["Medidas (Inm)"] != "OK") | \
+                             (df_alertas["Búsqueda Bienes"] != "OK")
+        
+        df_alertas = df_alertas[mask_alguna_alerta].reset_index(drop=True)
 
         # =========================================================
         # 3. INTERFAZ DE USUARIO
@@ -255,19 +281,17 @@ else:
         elif st.session_state.filtro_alerta == "BUSQUEDA": df_disp = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]
         elif st.session_state.filtro_alerta == "MP": df_disp = df_disp[df_disp['Mandamiento'] != "OK"]
 
-        # --- APLICACIÓN DE COLORES A LA TABLA PRINCIPAL ---
-        # Corregido: .applymap -> .map (compatibilidad Pandas 2.1+)
-        cols_alerta = ["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
-        
-        # Validar que las columnas existan antes de pintar
+        # --- APLICACIÓN DE COLORES Y CENTRADO ---
         cols_presentes = [c for c in cols_alerta if c in df_disp.columns]
         
         df_to_show = df_disp.drop(columns=['ID_LINK'])
-        if cols_presentes:
-            df_styled = df_to_show.style.map(color_semaforo, subset=cols_presentes)
-            st.dataframe(df_styled, use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(df_to_show, use_container_width=True, hide_index=True)
+        
+        # Aplicar el estilo
+        df_styled = df_to_show.style.map(color_semaforo, subset=cols_presentes)\
+                                   .set_properties(**{'text-align': 'center'})\
+                                   .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+        
+        st.dataframe(df_styled, use_container_width=True, hide_index=True)
 
         # =========================================================
         # 4. FICHA DE DETALLE
@@ -298,7 +322,9 @@ else:
                         df_b_detail[col_reg_b] = df_b_detail[col_reg_b].astype(str).replace(r'\.0$', '', regex=True)
                     
                     cols_final = [c for c in [col_ejec_b, col_tipo_b, col_esp_b, col_reg_b] if c and c in df_b_detail.columns]
-                    st.dataframe(df_b_detail[cols_final], hide_index=True)
+                    
+                    st.dataframe(df_b_detail[cols_final].style.set_properties(**{'text-align': 'center'})\
+                                                       .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}]), hide_index=True)
                 else: 
                     st.info("Sin bienes registrados.")
             
@@ -315,7 +341,8 @@ else:
                             df_p_show = df_p_show.sort_values(col_f_p, ascending=False)
                             df_p_show[col_f_p] = df_p_show[col_f_p].dt.strftime('%d/%m/%Y')
                         
-                        st.dataframe(df_p_show, hide_index=True)
+                        st.dataframe(df_p_show.style.set_properties(**{'text-align': 'center'})\
+                                                   .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}]), hide_index=True)
                     else:
                         st.warning("⚠️ No se pudieron identificar las columnas de fecha o nombre en Providencias.")
                 else: st.info("Sin providencias.")
