@@ -115,7 +115,12 @@ else:
             c_id = buscar_columna_flexible(df, nombres_id)
             df['ID_LINK'] = df[c_id].astype(str).apply(normalizar_id)
             for col in df.columns:
-                if any(k in col.upper() for k in ['FECHA', 'SOLICITUD', 'REGISTRO', 'PRACTICA']):
+                col_upper = col.upper()
+                # EXCEPCIÓN: No convertir a fecha la columna de No. Registro para evitar errores de formato
+                if "NO. REGISTRO" in col_upper:
+                    continue
+                # Solo convertir si contiene FECHA, SOLICITUD o PRACTICA
+                if any(k in col_upper for k in ['FECHA', 'SOLICITUD', 'PRACTICA']):
                     df[col] = pd.to_datetime(df[col], errors='coerce')
 
         cols_etapas = [c for c in df_f.columns if 'ETAPA' in c.upper()]
@@ -272,13 +277,15 @@ else:
                     col_esp_b = buscar_columna_flexible(df_b, ["Especifico (Casa, Apto, Oficina, Auto, Motocicleta, Ahorros, Corriente, Etc…)"])
                     col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
                     
-                    # Preparamos los datos para que el No. Registro se vea exacto
+                    # Preparamos los datos
                     df_b_detail = info_b.copy()
+                    
+                    # Mantenemos el No. Registro como texto tal cual viene del archivo
                     if col_reg_b:
-                        # Convertimos a string y quitamos el .0 final si existe para evitar notación científica
+                        # Aseguramos que sea string y limpiamos el .0 que a veces pone Excel al leer números
                         df_b_detail[col_reg_b] = df_b_detail[col_reg_b].astype(str).replace(r'\.0$', '', regex=True)
                     
-                    # Selección de columnas (sin OBSERVACIONES)
+                    # Selección de columnas (OBSERVACIONES eliminada de la vista detallada)
                     cols_final = [c for c in [col_ejec_b, col_tipo_b, col_esp_b, col_reg_b] if c and c in df_b_detail.columns]
                     
                     st.dataframe(df_b_detail[cols_final], hide_index=True)
@@ -297,6 +304,7 @@ else:
                         # Formatear fecha a dd/mm/aaaa si existe la columna
                         if col_f_p in df_p_show.columns:
                             df_p_show = df_p_show.sort_values(col_f_p, ascending=False)
+                            # Convertimos a string con formato dd/mm/aaaa
                             df_p_show[col_f_p] = df_p_show[col_f_p].dt.strftime('%d/%m/%Y')
                         
                         st.dataframe(df_p_show, hide_index=True)
