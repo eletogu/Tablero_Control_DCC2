@@ -14,49 +14,43 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Dashboard de Control DCC2", layout="wide")
 
 def check_password():
-    """Retorna True si el usuario ingresó credenciales correctas."""
+    """Verifica credenciales contra los Secrets de Streamlit."""
     def password_entered():
-        """Verifica si el usuario/contraseña coinciden con los Secrets."""
-        if (
-            st.session_state["username"] in st.secrets.get("credentials", {})
-            and st.session_state["password"] == st.secrets["credentials"][st.session_state["username"]]
-        ):
+        """Valida usuario y contraseña."""
+        user_input = st.session_state["username"].strip()
+        pass_input = st.session_state["password"].strip()
+        creds = st.secrets.get("credentials", {})
+        
+        if user_input in creds and pass_input == str(creds[user_input]):
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # No guardar contraseña en el estado
+            del st.session_state["password"]
             del st.session_state["username"]
         else:
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # Pantalla de Login
         st.markdown("<h1 style='text-align: center; color: #003366;'>🔐 Acceso Restringido DCC2</h1>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.text_input("Usuario", on_change=None, key="username")
-            st.text_input("Contraseña", type="password", on_change=None, key="password")
+            st.text_input("Usuario", key="username")
+            st.text_input("Contraseña", type="password", key="password")
             if st.button("Ingresar"):
                 password_entered()
-                if not st.session_state.get("password_correct", False):
+                if st.session_state.get("password_correct"):
+                    st.rerun()
+                else:
                     st.error("😕 Usuario o contraseña incorrectos")
-                    return False
-                st.rerun()
-            return False
+        return False
     elif not st.session_state["password_correct"]:
-        # Reintento si falló
-        st.text_input("Usuario", on_change=None, key="username")
-        st.text_input("Contraseña", type="password", on_change=None, key="password")
-        st.button("Ingresar", on_click=password_entered)
         st.error("😕 Usuario o contraseña incorrectos")
         return False
-    else:
-        return True
+    return True
 
-# Detener ejecución si no hay login exitoso
 if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA INSTITUCIONAL
+# 2. ESTÉTICA Y NORMALIZACIÓN
 # =========================================================
 st.markdown("""
     <style>
@@ -72,7 +66,9 @@ st.markdown("""
         border-left: 10px solid #d9534f; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
+    /* Centrado de datos en tablas */
     [data-testid="stDataFrame"] td { text-align: center !important; }
+    [data-testid="stTable"] td { text-align: center !important; }
     [data-testid="stTable"] th { text-align: center !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -80,11 +76,10 @@ st.markdown("""
 if 'filtro_alerta' not in st.session_state:
     st.session_state.filtro_alerta = "TODAS"
 
-# --- FUNCIONES DE APOYO ---
 def normalizar_texto(t):
     if pd.isna(t) or t == '': return ""
     texto = "".join((c for c in unicodedata.normalize('NFD', str(t).upper()) if unicodedata.category(c) != 'Mn'))
-    texto = re.sub(r'[\r\n\t]+', ' ', texto)
+    texto = re.sub(r'[\r\n\t]+', ' ', texto) # Eliminar Enters y saltos de línea
     return " ".join(texto.split()).strip()
 
 def normalizar_id(v):
@@ -104,10 +99,8 @@ def extraer_fecha_renovacion(texto, tipo):
     patron = f"RENOVACION {tipo}\\s+(\\d{{2}}/\\d{{2}}/\\d{{4}})"
     match = re.search(patron, obs_norm)
     if match:
-        try:
-            return datetime.strptime(match.group(1), "%d/%m/%Y")
-        except:
-            return None
+        try: return datetime.strptime(match.group(1), "%d/%m/%Y")
+        except: return None
     return None
 
 def color_semaforo(val):
@@ -123,7 +116,7 @@ def color_semaforo(val):
 @st.cache_data(ttl=600)
 def descargar_excel(url, nombre_debug, hoja):
     try:
-        resp = requests.get(url, timeout=40)
+        resp = requests.get(url, timeout=45)
         resp.raise_for_status()
         df = pd.read_excel(io.BytesIO(resp.content), sheet_name=hoja)
         return df.dropna(how='all')
@@ -131,17 +124,15 @@ def descargar_excel(url, nombre_debug, hoja):
         return f"Error en {nombre_debug} (Hoja: {hoja}): {str(e)}"
 
 # =========================================================
-# 3. CARGA DE DATOS
+# 3. PROCESAMIENTO DE DATOS
 # =========================================================
-
 st.markdown("<h1 style='text-align: center;'>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
-
 links = st.secrets.get("links_onedrive", None)
 
 if not links:
-    st.error("⚠️ Enlaces de datos no configurados en Secrets.")
+    st.error("⚠️ Enlaces de datos no configurados.")
 else:
-    with st.spinner('Sincronizando con la nube de la DCC2...'):
+    with st.spinner('Actualizando información operativa...'):
         bases = {
             "FUIC": descargar_excel(links.get("FUIC"), "FUIC", "PARA ENVIAR"),
             "PROVIDENCIAS": descargar_excel(links.get("PROVIDENCIAS"), "PROVIDENCIAS", "PROVIDENCIAS"),
@@ -154,25 +145,18 @@ else:
         for err in errores: st.error(err)
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
-        nombres_id = ["No. Proceso", "No Proceso", "PCC", "PROCESO"]
-        col_id_f = buscar_columna_flexible(df_f, nombres_id)
-        col_id_p = buscar_columna_flexible(df_p, nombres_id)
-        col_id_b = buscar_columna_flexible(df_b, nombres_id)
-        col_id_bus = buscar_columna_flexible(df_bus, nombres_id)
-
-        if not all([col_id_f, col_id_p, col_id_b, col_id_bus]):
-            st.error("❌ Error de estructura: No se encontró la columna 'No. Proceso'.")
-            st.stop()
-
+        
+        # Identificadores Maetros
         for df in [df_f, df_p, df_b, df_bus]:
-            cid = buscar_columna_flexible(df, nombres_id)
-            df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
+            cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
+            if cid:
+                df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
             for col in df.columns:
                 if "NO. REGISTRO" in col.upper(): continue
                 if any(k in col.upper() for k in ['FECHA', 'SOLICITUD', 'PRACTICA']):
                     df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        # Etapa procesal dinámica
+        # Etapa dinámica
         cols_etapas = [c for c in df_f.columns if 'ETAPA' in c.upper()]
         def get_stage(row):
             for col in reversed(cols_etapas):
@@ -181,7 +165,7 @@ else:
             return "N/A"
         df_f['ETAPA_REAL'] = df_f.apply(get_stage, axis=1)
 
-        # --- MOTOR DE ALERTAS ---
+        # Auditoría de Alertas
         hoy = datetime.now()
         alertas = []
         col_sust = buscar_columna_flexible(df_f, ["Sustanciador a Cargo", "Sustanciador"])
@@ -190,36 +174,35 @@ else:
         col_estado = buscar_columna_flexible(df_f, ["Estado Proceso en el Mes que se Rinde"])
 
         for _, row in df_f.iterrows():
-            pid = row['ID_LINK']
+            pid = row.get('ID_LINK', '')
             etapa = str(row['ETAPA_REAL']).upper()
             est_proc = str(row.get(col_estado, "")).upper() if col_estado else ""
-            vencimientos = []
+            venc_list = []
 
             # 1. Mandamiento
             al_mp = "OK"
             provs = df_p[df_p['ID_LINK'] == pid]
-            cnp = buscar_columna_flexible(df_p, ["Nombre Providencia", "Providencia"])
-            cfp = buscar_columna_flexible(df_p, ["Fecha Providencia", "Fecha"])
+            cnp = buscar_columna_flexible(df_p, ["Nombre Providencia"])
+            cfp = buscar_columna_flexible(df_p, ["Fecha Providencia"])
             if cnp and cfp:
                 ar = provs[provs[cnp].astype(str).str.contains("AVOCO", na=False, case=False)]
                 fa = ar[cfp].min() if not ar.empty else pd.NaT
-                if pd.notna(fa) and hasattr(fa, 'year') and "PERSUASIVA" in etapa:
+                if pd.notna(fa) and "PERSUASIVA" in etapa:
                     v_mp = fa + timedelta(days=90)
-                    vencimientos.append(v_mp)
+                    venc_list.append(v_mp)
                     if (hoy - fa).days >= 90: al_mp = "VENCIDO"
                     elif (hoy - fa).days >= 60: al_mp = "CRÍTICO"
 
             # 2. Fuerza Ejecutoria
             al_fe = "OK"
             fej = row.get(col_f_ejec)
-            fnot = row.get(col_f_not)
-            if pd.notna(fej) and pd.isna(fnot) and hasattr(fej, 'year'):
+            if pd.notna(fej) and pd.isna(row.get(col_f_not)):
                 v_fe = fej + timedelta(days=1826)
-                vencimientos.append(v_fe)
+                venc_list.append(v_fe)
                 if (hoy - fej).days / 365.25 >= 5: al_fe = "PERDIDA"
                 elif (hoy - fej).days / 365.25 >= 4: al_fe = "RIESGO ALTO"
 
-            # 3. Medidas (Inmuebles)
+            # 3. Medidas
             al_me = "OK"
             b_pr = df_b[df_b['ID_LINK'] == pid]
             ctb = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)"])
@@ -228,14 +211,14 @@ else:
                 inms = b_pr[b_pr[ctb].astype(str).str.contains("INMUEBLE", na=False, case=False)]
                 for _, inm in inms.iterrows():
                     fr = inm[cfe]
-                    obs = inm.get('OBSERVACIONES', '')
+                    obs = str(inm.get('OBSERVACIONES', ''))
                     fr2, fr1 = extraer_fecha_renovacion(obs, "2"), extraer_fecha_renovacion(obs, "1")
                     if pd.notna(fr2): v = fr2 + timedelta(days=5*365.25)
                     elif pd.notna(fr1): v = fr1 + timedelta(days=5*365.25)
                     elif pd.notna(fr): v = fr + timedelta(days=10*365.25)
                     else: continue
-                    vencimientos.append(v)
-                v_validos = [v for v in vencimientos if v > datetime(1900, 1, 1)]
+                    venc_list.append(v)
+                v_validos = [v for v in venc_list if v > datetime(1900, 1, 1)]
                 if v_validos:
                     fv = min(v_validos)
                     if hoy > fv: al_me = "CADUCADO"
@@ -244,22 +227,23 @@ else:
             # 4. Búsqueda
             al_bu = "OK"
             if "ARCHIVADO" not in est_proc:
-                b_pr = df_bus[df_bus['ID_LINK'] == pid]
+                b_bus = df_bus[df_bus['ID_LINK'] == pid]
                 cfs = buscar_columna_flexible(df_bus, ["Fecha Solicitud"])
-                fb = b_pr[cfs].max() if (not b_pr.empty and cfs) else pd.NaT
+                fb = b_bus[cfs].max() if (not b_bus.empty and cfs) else pd.NaT
                 if pd.isna(fb): 
                     al_bu = "PENDIENTE"
-                    vencimientos.append(hoy - timedelta(days=1))
+                    venc_list.append(hoy - timedelta(days=1))
                 else:
                     v_bu = fb + timedelta(days=120)
-                    vencimientos.append(v_bu)
+                    venc_list.append(v_bu)
                     if (hoy - fb).days >= 120: al_bu = "VENCIDA"
                     elif (hoy - fb).days >= 90: al_bu = "PRÓXIMA"
 
-            f_prox = min(vencimientos) if vencimientos else pd.NaT
+            f_prox = min(venc_list) if venc_list else pd.NaT
+            # Solo añadir si hay al menos una alerta
             if any(x != "OK" for x in [al_mp, al_fe, al_me, al_bu]):
                 alertas.append({
-                    "No. Proceso": row[col_id_f],
+                    "No. Proceso": row[buscar_columna_flexible(df_f, ["No. Proceso"])],
                     "Sustanciador": row.get(col_sust, "N/A"),
                     "Etapa Actual": etapa,
                     "Mandamiento": al_mp,
@@ -273,19 +257,20 @@ else:
         df_alertas = pd.DataFrame(alertas)
 
         # =========================================================
-        # 4. INTERFAZ
+        # 4. INTERFAZ DE USUARIO
         # =========================================================
         with st.sidebar:
             st.header("🔍 Gestión")
+            sel_sust = st.multiselect("Filtrar Sustanciador:", sorted(df_alertas['Sustanciador'].unique()))
             if st.button("Limpiar Filtros"):
                 st.session_state.filtro_alerta = "TODAS"
                 st.rerun()
             st.write("---")
-            st.write(f"Sesión: {st.session_state.get('username', 'User')}")
             if st.button("Cerrar Sesión"):
                 st.session_state.password_correct = False
                 st.rerun()
 
+        # KPIs
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Riesgo Fuerza", len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"]))
         c2.metric("Medidas x Renovar", len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"]))
@@ -293,20 +278,33 @@ else:
         c4.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
 
         st.write("---")
+        
+        # Filtrado para tabla principal
+        df_disp = df_alertas.copy()
+        if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
+        
         # Tabla Principal
-        df_styled = df_alertas.drop(columns=['ID_LINK', 'Vencimiento_Proximo'])\
-                              .style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
-                              .set_properties(**{'text-align': 'center'})\
-                              .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+        cols_pintar = ["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
+        df_final_show = df_disp.drop(columns=['ID_LINK', 'Vencimiento_Proximo'])
+        
+        df_styled = df_final_show.style.map(color_semaforo, subset=cols_pintar)\
+                                       .set_properties(**{'text-align': 'center'})\
+                                       .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+        
+        st.subheader("📋 Inventario de Alertas Activas")
         st.dataframe(df_styled, use_container_width=True, hide_index=True)
 
-        # TOP 10 URGENCIAS
+        # SECCIÓN TOP 10 URGENCIAS
         st.write("---")
-        st.subheader("📅 Top 10 Urgencias (Acción Inmediata)")
+        st.subheader("📅 Top 10 Urgencias (Acción Prioritaria)")
+        
         df_prio = df_alertas.sort_values(by="Vencimiento_Proximo", ascending=True).head(10).copy()
         if not df_prio.empty:
-            df_prio['Días Restantes'] = df_prio['Vencimiento_Proximo'].apply(lambda x: f"{(x - hoy).days} días" if pd.notna(x) else "N/A")
+            df_prio['Días'] = df_prio['Vencimiento_Proximo'].apply(lambda x: f"{(x - hoy).days} d" if pd.notna(x) else "N/A")
             df_prio['Vencimiento'] = df_prio['Vencimiento_Proximo'].dt.strftime('%d/%m/%Y')
+            
+            # Formatear la tabla de priorización
             st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
-            st.table(df_prio[["No. Proceso", "Sustanciador", "Etapa Actual", "Vencimiento", "Días Restantes"]].style.set_properties(**{'text-align': 'center'}))
+            df_prio_table = df_prio[["No. Proceso", "Sustanciador", "Etapa Actual", "Vencimiento", "Días"]]
+            st.table(df_prio_table.style.set_properties(**{'text-align': 'center'}))
             st.markdown('</div>', unsafe_allow_html=True)
