@@ -37,9 +37,7 @@ if 'filtro_alerta' not in st.session_state:
 # --- FUNCIONES DE LIMPIEZA Y NORMALIZACIÓN ---
 def normalizar_texto(t):
     if pd.isna(t) or t == '': return ""
-    # Eliminar acentos y convertir a mayúsculas
     texto = "".join((c for c in unicodedata.normalize('NFD', str(t).upper()) if unicodedata.category(c) != 'Mn'))
-    # REFUERZO: Reemplazar saltos de línea (\n, \r) y espacios múltiples por un solo espacio
     texto = re.sub(r'[\r\n\t]+', ' ', texto)
     return " ".join(texto.split()).strip()
 
@@ -48,7 +46,7 @@ def normalizar_id(v):
     return re.sub(r'[^A-Z0-9]', '', str(v).strip().upper().replace('.0', ''))
 
 def buscar_columna_flexible(df, posibles_nombres):
-    """Busca una columna comparando nombres normalizados y maneja duplicados."""
+    """Busca una columna comparando nombres normalizados."""
     posibles_norm = [normalizar_texto(n) for n in posibles_nombres]
     for col in df.columns:
         if normalizar_texto(col) in posibles_norm:
@@ -57,7 +55,6 @@ def buscar_columna_flexible(df, posibles_nombres):
 
 def extraer_fecha_renovacion(texto, tipo):
     if pd.isna(texto): return None
-    # Normalizamos el texto de la observación para la búsqueda
     obs_norm = normalizar_texto(texto)
     patron = f"RENOVACION {tipo}\\s+(\\d{{2}}/\\d{{2}}/\\d{{4}})"
     match = re.search(patron, obs_norm)
@@ -97,7 +94,6 @@ else:
             "BUSQUEDAS": descargar_excel(links.get("BUSQUEDA_BIENES"), "BUSQUEDA DE BIENES", "BUSQUEDA DE BIENES (SOLICITUDES")
         }
 
-    # Verificación de carga
     errores_carga = [v for v in bases.values() if isinstance(v, str)]
     if errores_carga:
         for err in errores_carga: st.error(err)
@@ -115,7 +111,6 @@ else:
             st.markdown('<div class="error-diag"><h3>❌ Error de Estructura Detectado</h3><p>No se encontró la columna <b>"No. Proceso"</b> en uno o más archivos.</p></div>', unsafe_allow_html=True)
             st.stop()
 
-        # Preparación de ID_LINK y Fechas
         for df in [df_f, df_p, df_b, df_bus]:
             c_id = buscar_columna_flexible(df, nombres_id)
             df['ID_LINK'] = df[c_id].astype(str).apply(normalizar_id)
@@ -123,7 +118,6 @@ else:
                 if any(k in col.upper() for k in ['FECHA', 'SOLICITUD', 'REGISTRO', 'PRACTICA']):
                     df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        # Lógica de Etapa
         cols_etapas = [c for c in df_f.columns if 'ETAPA' in c.upper()]
         def get_current_stage(row):
             for col in reversed(cols_etapas):
@@ -254,7 +248,7 @@ else:
         st.dataframe(df_disp.drop(columns=['ID_LINK']), use_container_width=True, hide_index=True)
 
         # =========================================================
-        # 4. FICHA DE DETALLE (SEGURIDAD DE COLUMNAS)
+        # 4. FICHA DE DETALLE (AMPLIACIÓN DE COLUMNAS DE BIENES)
         # =========================================================
         st.write("---")
         st.subheader("🧐 Consulta Detallada de Expediente")
@@ -272,10 +266,19 @@ else:
             with c_i1:
                 st.write("### 🏠 Bienes")
                 if not info_b.empty:
-                    # Selección segura de columnas para bienes
-                    cols_b_show = [c for c in [col_tipo_b, 'OBSERVACIONES'] if c in info_b.columns]
-                    st.table(info_b[cols_b_show])
-                else: st.info("Sin bienes registrados.")
+                    # Mapeo de nuevas columnas solicitadas
+                    col_ejec_b = buscar_columna_flexible(df_b, ["Ejecutado"])
+                    col_tipo_b = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)"])
+                    col_esp_b = buscar_columna_flexible(df_b, ["Especifico (Casa, Apto, Oficina, Auto, Motocicleta, Ahorros, Corriente, Etc…)"])
+                    col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
+                    
+                    # Selección de columnas para mostrar (solo las que existen)
+                    cols_a_mostrar = [c for c in [col_ejec_b, col_tipo_b, col_esp_b, col_reg_b, 'OBSERVACIONES'] if c and c in info_b.columns]
+                    
+                    # Mostrar tabla de bienes
+                    st.dataframe(info_b[cols_a_mostrar], hide_index=True)
+                else: 
+                    st.info("Sin bienes registrados.")
             
             with c_i2:
                 st.write("### ⚖️ Providencias")
