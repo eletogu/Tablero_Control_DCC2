@@ -256,10 +256,18 @@ else:
         elif st.session_state.filtro_alerta == "MP": df_disp = df_disp[df_disp['Mandamiento'] != "OK"]
 
         # --- APLICACIÓN DE COLORES A LA TABLA PRINCIPAL ---
+        # Corregido: .applymap -> .map (compatibilidad Pandas 2.1+)
         cols_alerta = ["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
-        df_styled = df_disp.drop(columns=['ID_LINK']).style.applymap(color_semaforo, subset=cols_alerta)
         
-        st.dataframe(df_styled, use_container_width=True, hide_index=True)
+        # Validar que las columnas existan antes de pintar
+        cols_presentes = [c for c in cols_alerta if c in df_disp.columns]
+        
+        df_to_show = df_disp.drop(columns=['ID_LINK'])
+        if cols_presentes:
+            df_styled = df_to_show.style.map(color_semaforo, subset=cols_presentes)
+            st.dataframe(df_styled, use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(df_to_show, use_container_width=True, hide_index=True)
 
         # =========================================================
         # 4. FICHA DE DETALLE
