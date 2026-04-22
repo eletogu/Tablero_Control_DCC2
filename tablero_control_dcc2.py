@@ -9,7 +9,7 @@ import requests
 from datetime import datetime, timedelta
 
 # =========================================================
-# 1. CONFIGURACIÓN Y SEGURIDAD (LOGIN)
+# 1. CONFIGURACIÓN Y SEGURIDAD (LOGIN ROBUSTO)
 # =========================================================
 st.set_page_config(page_title="Dashboard de Control DCC2", layout="wide")
 
@@ -19,9 +19,15 @@ def check_password():
         """Valida usuario y contraseña."""
         user_input = st.session_state["username"].strip()
         pass_input = st.session_state["password"].strip()
-        creds = st.secrets.get("credentials", {})
         
-        if user_input in creds and pass_input == str(creds[user_input]):
+        # Obtenemos las credenciales como un diccionario real de Python
+        try:
+            creds = st.secrets["credentials"]
+        except:
+            creds = {}
+        
+        # Verificación exacta
+        if user_input in creds and str(pass_input) == str(creds[user_input]):
             st.session_state["password_correct"] = True
             del st.session_state["password"]
             del st.session_state["username"]
@@ -39,7 +45,7 @@ def check_password():
                 if st.session_state.get("password_correct"):
                     st.rerun()
                 else:
-                    st.error("😕 Usuario o contraseña incorrectos")
+                    st.error("😕 Usuario o contraseña incorrectos. Si su usuario tiene puntos, asegúrese de que en 'Secrets' esté entre comillas: \"usuario.nombre\" = \"clave\"")
         return False
     elif not st.session_state["password_correct"]:
         st.error("😕 Usuario o contraseña incorrectos")
@@ -66,7 +72,6 @@ st.markdown("""
         border-left: 10px solid #d9534f; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
-    /* Centrado de datos en tablas */
     [data-testid="stDataFrame"] td { text-align: center !important; }
     [data-testid="stTable"] td { text-align: center !important; }
     [data-testid="stTable"] th { text-align: center !important; }
@@ -79,7 +84,7 @@ if 'filtro_alerta' not in st.session_state:
 def normalizar_texto(t):
     if pd.isna(t) or t == '': return ""
     texto = "".join((c for c in unicodedata.normalize('NFD', str(t).upper()) if unicodedata.category(c) != 'Mn'))
-    texto = re.sub(r'[\r\n\t]+', ' ', texto) # Eliminar Enters y saltos de línea
+    texto = re.sub(r'[\r\n\t]+', ' ', texto) 
     return " ".join(texto.split()).strip()
 
 def normalizar_id(v):
@@ -146,7 +151,6 @@ else:
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
-        # Identificadores Maetros
         for df in [df_f, df_p, df_b, df_bus]:
             cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
             if cid:
@@ -156,7 +160,6 @@ else:
                 if any(k in col.upper() for k in ['FECHA', 'SOLICITUD', 'PRACTICA']):
                     df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        # Etapa dinámica
         cols_etapas = [c for c in df_f.columns if 'ETAPA' in c.upper()]
         def get_stage(row):
             for col in reversed(cols_etapas):
@@ -165,7 +168,6 @@ else:
             return "N/A"
         df_f['ETAPA_REAL'] = df_f.apply(get_stage, axis=1)
 
-        # Auditoría de Alertas
         hoy = datetime.now()
         alertas = []
         col_sust = buscar_columna_flexible(df_f, ["Sustanciador a Cargo", "Sustanciador"])
@@ -240,7 +242,6 @@ else:
                     elif (hoy - fb).days >= 90: al_bu = "PRÓXIMA"
 
             f_prox = min(venc_list) if venc_list else pd.NaT
-            # Solo añadir si hay al menos una alerta
             if any(x != "OK" for x in [al_mp, al_fe, al_me, al_bu]):
                 alertas.append({
                     "No. Proceso": row[buscar_columna_flexible(df_f, ["No. Proceso"])],
@@ -257,7 +258,7 @@ else:
         df_alertas = pd.DataFrame(alertas)
 
         # =========================================================
-        # 4. INTERFAZ DE USUARIO
+        # 4. INTERFAZ
         # =========================================================
         with st.sidebar:
             st.header("🔍 Gestión")
@@ -270,7 +271,6 @@ else:
                 st.session_state.password_correct = False
                 st.rerun()
 
-        # KPIs
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Riesgo Fuerza", len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"]))
         c2.metric("Medidas x Renovar", len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"]))
@@ -278,33 +278,22 @@ else:
         c4.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
 
         st.write("---")
-        
-        # Filtrado para tabla principal
         df_disp = df_alertas.copy()
         if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
-        # Tabla Principal
         cols_pintar = ["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
-        df_final_show = df_disp.drop(columns=['ID_LINK', 'Vencimiento_Proximo'])
-        
-        df_styled = df_final_show.style.map(color_semaforo, subset=cols_pintar)\
-                                       .set_properties(**{'text-align': 'center'})\
-                                       .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
-        
-        st.subheader("📋 Inventario de Alertas Activas")
+        df_styled = df_disp.drop(columns=['ID_LINK', 'Vencimiento_Proximo'])\
+                              .style.map(color_semaforo, subset=cols_pintar)\
+                              .set_properties(**{'text-align': 'center'})\
+                              .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
         st.dataframe(df_styled, use_container_width=True, hide_index=True)
 
-        # SECCIÓN TOP 10 URGENCIAS
         st.write("---")
         st.subheader("📅 Top 10 Urgencias (Acción Prioritaria)")
-        
         df_prio = df_alertas.sort_values(by="Vencimiento_Proximo", ascending=True).head(10).copy()
         if not df_prio.empty:
             df_prio['Días'] = df_prio['Vencimiento_Proximo'].apply(lambda x: f"{(x - hoy).days} d" if pd.notna(x) else "N/A")
             df_prio['Vencimiento'] = df_prio['Vencimiento_Proximo'].dt.strftime('%d/%m/%Y')
-            
-            # Formatear la tabla de priorización
             st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
-            df_prio_table = df_prio[["No. Proceso", "Sustanciador", "Etapa Actual", "Vencimiento", "Días"]]
-            st.table(df_prio_table.style.set_properties(**{'text-align': 'center'}))
+            st.table(df_prio[["No. Proceso", "Sustanciador", "Etapa Actual", "Vencimiento", "Días"]].style.set_properties(**{'text-align': 'center'}))
             st.markdown('</div>', unsafe_allow_html=True)
