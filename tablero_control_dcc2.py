@@ -248,7 +248,7 @@ else:
         st.dataframe(df_disp.drop(columns=['ID_LINK']), use_container_width=True, hide_index=True)
 
         # =========================================================
-        # 4. FICHA DE DETALLE (AMPLIACIÓN DE COLUMNAS DE BIENES)
+        # 4. FICHA DE DETALLE (CONSULTA POR PROCESO)
         # =========================================================
         st.write("---")
         st.subheader("🧐 Consulta Detallada de Expediente")
@@ -266,17 +266,22 @@ else:
             with c_i1:
                 st.write("### 🏠 Bienes")
                 if not info_b.empty:
-                    # Mapeo de nuevas columnas solicitadas
+                    # Mapeo de columnas solicitadas
                     col_ejec_b = buscar_columna_flexible(df_b, ["Ejecutado"])
                     col_tipo_b = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)"])
                     col_esp_b = buscar_columna_flexible(df_b, ["Especifico (Casa, Apto, Oficina, Auto, Motocicleta, Ahorros, Corriente, Etc…)"])
                     col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
                     
-                    # Selección de columnas para mostrar (solo las que existen)
-                    cols_a_mostrar = [c for c in [col_ejec_b, col_tipo_b, col_esp_b, col_reg_b, 'OBSERVACIONES'] if c and c in info_b.columns]
+                    # Preparamos los datos para que el No. Registro se vea exacto
+                    df_b_detail = info_b.copy()
+                    if col_reg_b:
+                        # Convertimos a string y quitamos el .0 final si existe para evitar notación científica
+                        df_b_detail[col_reg_b] = df_b_detail[col_reg_b].astype(str).replace(r'\.0$', '', regex=True)
                     
-                    # Mostrar tabla de bienes
-                    st.dataframe(info_b[cols_a_mostrar], hide_index=True)
+                    # Selección de columnas (sin OBSERVACIONES)
+                    cols_final = [c for c in [col_ejec_b, col_tipo_b, col_esp_b, col_reg_b] if c and c in df_b_detail.columns]
+                    
+                    st.dataframe(df_b_detail[cols_final], hide_index=True)
                 else: 
                     st.info("Sin bienes registrados.")
             
@@ -288,9 +293,12 @@ else:
                     if col_nom_p and col_nom_p in info_p.columns: cols_p_avail.append(col_nom_p)
                     
                     if cols_p_avail:
-                        df_p_show = info_p[cols_p_avail]
+                        df_p_show = info_p[cols_p_avail].copy()
+                        # Formatear fecha a dd/mm/aaaa si existe la columna
                         if col_f_p in df_p_show.columns:
                             df_p_show = df_p_show.sort_values(col_f_p, ascending=False)
+                            df_p_show[col_f_p] = df_p_show[col_f_p].dt.strftime('%d/%m/%Y')
+                        
                         st.dataframe(df_p_show, hide_index=True)
                     else:
                         st.warning("⚠️ No se pudieron identificar las columnas de fecha o nombre en Providencias.")
