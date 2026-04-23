@@ -155,7 +155,7 @@ else:
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
-        # Identificadores Maetros
+        # Identificadores Maestros
         for df in [df_f, df_p, df_b, df_bus]:
             cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
             if cid:
@@ -278,7 +278,7 @@ else:
         # =========================================================
         with st.sidebar:
             st.header("🔍 Gestión")
-            sel_sust = st.multiselect("Filtrar Sustanciador:", sorted(df_alertas['Sustanciador'].unique()))
+            sel_sust = st.multiselect("Filtrar Sustanciador:", sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else [])
             if st.button("Limpiar Filtros"):
                 st.session_state.filtro_alerta = "TODAS"
                 st.rerun()
@@ -360,7 +360,6 @@ else:
             l_match = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
             u_f = l_match.iloc[0] if not l_match.empty else pd.NaT
             
-            # Si no hay fecha, es hoy y es una OMISIÓN (Rojo)
             if pd.isna(u_f):
                 p_f = hoy
                 es_omision = True
@@ -377,25 +376,27 @@ else:
         
         df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha Próxima BB")
         
-        # 3. Aplicar estilo de sombreado rojo
-        def style_cron_table(row):
-            # Pintamos de rojo si la columna auxiliar Es_Omision es True
-            return ['background-color: #f8d7da; color: #721c24; font-weight: bold;' if row.Es_Omision else '' for _ in row.index]
+        # 3. Función de estilo para resaltar SOLO la fecha de hoy
+        def style_only_today_date(row):
+            styles = ['' for _ in row.index]
+            if row.Es_Omision:
+                # Localizamos la columna de la fecha
+                date_idx = row.index.get_loc("Fecha Próxima BB")
+                styles[date_idx] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+            return styles
 
         if not df_cron.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
             
-            # Formatear fecha para visualización
-            df_cron['Fecha Próxima BB Display'] = df_cron['Fecha Próxima BB'].dt.strftime('%d/%m/%Y')
+            # Formateamos fecha para visualización (mantenemos el nombre original para la lógica de estilo)
+            df_cron_display = df_cron.copy()
+            df_cron_display['Fecha Próxima BB'] = df_cron_display['Fecha Próxima BB'].dt.strftime('%d/%m/%Y')
             
-            # Columnas a mostrar (renombradas)
-            df_final_cron = df_cron[["No. Proceso", "Sustanciador", "Fecha Próxima BB Display", "Es_Omision"]].rename(columns={"Fecha Próxima BB Display": "Fecha Próxima BB"})
-            
-            # Aplicamos el estilo y ocultamos la columna técnica Es_Omision
-            styled_table = df_final_cron.style.apply(style_cron_table, axis=1)\
-                                              .set_properties(**{'text-align': 'center'})\
-                                              .hide(axis="columns", subset=["Es_Omision"])
+            # Aplicamos estilo, centramos y OCULTAMOS la columna Es_Omision
+            styled_table = df_cron_display.style.apply(style_only_today_date, axis=1)\
+                                                .set_properties(**{'text-align': 'center'})\
+                                                .hide(axis="columns", subset=["Es_Omision"])
             
             st.dataframe(styled_table, use_container_width=True, hide_index=True)
             st.markdown('</div>', unsafe_allow_html=True)
-            st.caption("Nota: Las celdas en rojo corresponden a procesos sin búsqueda previa (Fecha programada para hoy).")
+            st.caption("Nota: Las fechas resaltadas en rojo corresponden a procesos sin historial de búsqueda previa.")
