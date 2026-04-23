@@ -46,7 +46,7 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA Y REGLAS DE CENTRADO COMPACTO (CSS)
+# 2. ESTÉTICA Y REGLAS DE TABLA COMPACTA (CSS)
 # =========================================================
 st.markdown("""
     <style>
@@ -57,27 +57,23 @@ st.markdown("""
     }
     h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI', sans-serif; }
     
-    /* Contenedor de Scroll con tamaño controlado */
+    /* Contenedor con Scroll Vertical y Ajuste Horizontal */
     .table-container {
-        max-height: 350px; /* Tamaño reducido para forzar scroll */
+        max-height: 400px;
         overflow-y: auto;
-        overflow-x: auto;
+        width: 100% !important;
         border: 1px solid #dee2e6;
         border-radius: 8px;
         background-color: white;
-        margin: 10px auto 25px auto;
-        display: block;
-        width: fit-content; /* Se ajusta al contenido */
-        max-width: 100%;
-        min-width: 60%;
+        margin-bottom: 25px;
     }
 
-    /* Tabla HTML Estilizada y Compacta */
+    /* Tabla Estilo Excel Compacto */
     .styled-table {
-        width: auto !important; /* NO se desborda */
-        min-width: 100%;
+        width: 100% !important;
         border-collapse: collapse;
-        font-size: 0.85rem; /* Fuente más pequeña */
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 0.85rem;
     }
     .styled-table thead th {
         position: sticky;
@@ -85,23 +81,26 @@ st.markdown("""
         background-color: #f1f3f5 !important;
         color: #003366 !important;
         text-align: center !important;
-        padding: 8px 12px;
+        padding: 5px 10px !important;
         z-index: 2;
         border-bottom: 2px solid #dee2e6;
-        white-space: nowrap;
+        height: 30px;
+    }
+    .styled-table tbody tr {
+        height: 25px !important; /* Altura de fila compacta similar a Excel */
     }
     .styled-table tbody td {
         text-align: center !important;
-        padding: 6px 12px;
+        padding: 2px 10px !important; /* Padding mínimo para reducir altura */
         border-bottom: 1px solid #eee;
-        color: #333;
+        line-height: 1.1 !important;
+        vertical-align: middle !important;
     }
     
-    /* Panel de Priorización (st.table) */
-    .panel-priorizacion {
+    /* Paneles inferiores */
+    .panel-priorizacion, .panel-busqueda {
         background-color: #ffffff; padding: 10px; border-radius: 12px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
-        border-left: 10px solid #d9534f;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -302,26 +301,25 @@ else:
         titulo, cols_b = "Inventario de Alertas Activas", ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
         
         if st.session_state.filtro_alerta == "FUERZA":
-            df_disp, titulo = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"], "Riesgo Fuerza Ejecutoria"
+            df_disp, titulo = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"], "🚨 Riesgo Fuerza Ejecutoria"
         elif st.session_state.filtro_alerta == "MEDIDAS":
-            df_disp, titulo = df_disp[df_disp['Medidas (Inm)'] != "OK"], "Medidas por Renovar"
+            df_disp, titulo = df_disp[df_disp['Medidas (Inm)'] != "OK"], "🏠 Medidas por Renovar"
             cols_b.insert(3, "No. Registro")
         elif st.session_state.filtro_alerta == "BUSQUEDA":
-            df_disp, titulo = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])], "Búsqueda de Bienes Vencida"
+            df_disp, titulo = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])], "🔎 Búsqueda de Bienes Vencida"
             if not df_disp.empty: df_disp['Última Búsqueda'] = df_disp['Ultima_Busqueda'].dt.strftime('%d/%m/%Y').fillna("SIN REGISTRO")
             cols_b.append("Última Búsqueda")
         elif st.session_state.filtro_alerta == "MP":
-            df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "Términos Mandamiento"
+            df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
 
         st.subheader(titulo)
         
         if not df_disp.empty:
-            # HTML COMPACTO CON CENTRADO TOTAL
             styled_df = df_disp[cols_b].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
             html_table = styled_df.to_html(classes='styled-table', index=False, escape=False)
             st.markdown(f'<div class="table-container">{html_table}</div>', unsafe_allow_html=True)
         else:
-            st.info("💡 No hay alertas relevantes para mostrar.")
+            st.info("💡 No hay alertas relevantes.")
 
         # =========================================================
         # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
@@ -338,12 +336,9 @@ else:
             df_p_fe['Vencimiento Fuerza'], df_p_fe['Fecha Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
             
             st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
-            t10_cols = ["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]
-            html_t10 = df_p_fe[t10_cols].to_html(classes='styled-table', index=False)
+            html_t10 = df_p_fe[["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]].to_html(classes='styled-table', index=False)
             st.markdown(html_t10, unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.info("✅ Sin riesgos de fuerza detectados.")
 
         st.write("---")
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
@@ -364,7 +359,6 @@ else:
         if sel_sust: df_cron = df_cron[df_cron['Sustanciador'].isin(sel_sust)]
         
         if not df_cron.empty:
-            # Capturar máscara antes de eliminar columna
             mask_o = df_cron["Es_Omision"].values
             df_cr_view = df_cron[["No. Proceso", "Sustanciador"]].copy()
             df_cr_view['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
@@ -377,9 +371,6 @@ else:
                         stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                 return stls
 
-            # Renderizado Compacto HTML
             html_cron = df_cr_view.style.apply(style_red_month_compact, axis=None).to_html(classes='styled-table', index=False)
             st.markdown(f'<div class="table-container">{html_cron}</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos sin historial de búsqueda.")
-        else:
-            st.info("🔎 No hay gestiones programadas.")
