@@ -13,14 +13,13 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Dashboard de Control DCC2", layout="wide")
 
-# INICIALIZACIÓN GLOBAL DE SESSION STATE (Evita AttributeError)
+# Inicialización de estado para evitar errores de atributo
 if 'password_correct' not in st.session_state:
     st.session_state['password_correct'] = False
 if 'filtro_alerta' not in st.session_state:
     st.session_state.filtro_alerta = "TODAS"
 
 def check_password():
-    """Verifica credenciales contra los Secrets de Streamlit."""
     def password_entered():
         user_input = st.session_state["username"].strip()
         pass_input = st.session_state["password"].strip()
@@ -49,7 +48,7 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA Y REGLAS DE DISEÑO EXCEL COMPACTO (CSS)
+# 2. ESTÉTICA UNIFICADA TIPO EXCEL (CSS DEFINITIVO)
 # =========================================================
 st.markdown("""
     <style>
@@ -58,52 +57,47 @@ st.markdown("""
         background-color: #ffffff; padding: 10px; border-radius: 12px; 
         box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 5px solid #003366;
     }
-    h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; }
+    h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI', sans-serif; }
     
-    /* CONTENEDOR CON SCROLL VERTICAL */
-    .table-scroll-container {
+    /* Contenedor de Scroll Vertical */
+    .scroll-box {
         max-height: 350px;
         overflow-y: auto;
-        overflow-x: hidden;
         border: 1px solid #dee2e6;
-        border-radius: 6px;
+        border-radius: 4px;
         background-color: white;
         margin-bottom: 25px;
         width: 100%;
     }
 
-    /* TABLA ESTILO EXCEL UNIFICADA (Centrado y Compacto) */
-    .excel-table {
-        width: 100% !important;
-        border-collapse: collapse !important;
-        font-family: 'Segoe UI', sans-serif;
+    /* Tabla Estilo Excel: Centrado y Compacto */
+    .tabla-final {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         font-size: 13px;
-        table-layout: fixed;
     }
-    .excel-table thead th {
+    .tabla-final thead th {
         position: sticky;
         top: 0;
         background-color: #f1f3f5 !important;
-        color: #003366 !important;
+        color: #333 !important;
         text-align: center !important;
-        padding: 5px 8px !important;
+        padding: 4px 10px !important;
         z-index: 10;
-        border: 1px solid #dee2e6 !important;
+        border: 1px solid #ccc;
         font-weight: bold;
     }
-    .excel-table tbody td {
+    .tabla-final tbody td {
         text-align: center !important;
-        padding: 2px 8px !important; /* Altura mínima tipo Excel */
-        border: 1px solid #dee2e6 !important;
+        padding: 2px 8px !important;
+        border: 1px solid #dee2e6;
         height: 20px !important;
-        line-height: 1.1 !important;
-        vertical-align: middle !important;
+        line-height: 1 !important;
+        vertical-align: middle;
         color: #333;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
     }
-    .excel-table tbody tr:hover {
+    .tabla-final tbody tr:hover {
         background-color: #f1f5f9;
     }
     </style>
@@ -166,7 +160,7 @@ else:
         }
 
     if any(isinstance(v, str) for v in bases.values()):
-        st.error("Error al conectar con las bases de datos en la nube.")
+        st.error("Error al conectar con los datos.")
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
@@ -267,7 +261,7 @@ else:
             st.header("🔍 Gestión")
             todos_sust = sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else []
             sel_sust = st.multiselect("Filtrar Sustanciador:", todos_sust)
-            if st.button("Limpiar todos los filtros"):
+            if st.button("Limpiar filtros"):
                 st.session_state.filtro_alerta = "TODAS"
                 st.rerun()
             st.write("---")
@@ -291,6 +285,7 @@ else:
 
         st.write("---")
         
+        # Filtro Maestro
         df_disp = df_alertas.copy()
         if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
@@ -311,14 +306,15 @@ else:
         st.subheader(titulo)
         
         if not df_disp.empty:
+            # RENDERIZADO DEFINITIVO SIN ÍNDICE
             html_main = df_disp[cols_b].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
-                                             .to_html(classes='excel-table', index=False, escape=False)
-            st.markdown(f'<div class="table-scroll-container">{html_main}</div>', unsafe_allow_html=True)
+                                             .to_html(classes='tabla-final', index=False, escape=False)
+            st.markdown(f'<div class="scroll-box">{html_main}</div>', unsafe_allow_html=True)
         else:
-            st.info("💡 No hay información relevante para mostrar.")
+            st.info("💡 Sin información relevante para mostrar.")
 
         # =========================================================
-        # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
+        # 5. MÓDULOS INFERIORES UNIFICADOS
         # =========================================================
         st.write("---")
         st.subheader("🚨 Top 10: Riesgo Fuerza Ejecutoria")
@@ -329,11 +325,12 @@ else:
         if not df_p_fe.empty:
             df_p_fe['Días para Prescribir'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else f"PRESCRITO ({(hoy-x).days} d)")
             df_p_fe['Vencimiento Fuerza'], df_p_fe['Fecha Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
+            
             t10_cols = ["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]
-            html_t10 = df_p_fe[t10_cols].to_html(classes='excel-table', index=False)
+            html_t10 = df_p_fe[t10_cols].to_html(classes='tabla-final', index=False)
             st.markdown(html_t10, unsafe_allow_html=True)
         else:
-            st.info("✅ Sin riesgos de fuerza para el funcionario.")
+            st.info("✅ Sin riesgos inminentes detectados.")
 
         st.write("---")
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
@@ -355,19 +352,20 @@ else:
         
         if not df_cron.empty:
             mask_o = df_cron["Es_Omision"].values
+            # Eliminamos físicamente la columna técnica antes de renderizar
             df_cr_view = df_cron[["No. Proceso", "Sustanciador"]].copy()
             df_cr_view['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
             df_cr_view = df_cr_view.reset_index(drop=True)
 
-            def style_red_month_excel(df):
+            def style_red_month_html(df):
                 stls = pd.DataFrame('', index=df.index, columns=df.columns)
                 for i, is_new in enumerate(mask_o):
                     if is_new:
                         stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                 return stls
 
-            html_cron = df_cr_view.style.apply(style_red_month_excel, axis=None).to_html(classes='excel-table', index=False)
-            st.markdown(f'<div class="table-scroll-container">{html_cron}</div>', unsafe_allow_html=True)
+            html_cron = df_cr_view.style.apply(style_red_month_html, axis=None).to_html(classes='tabla-final', index=False)
+            st.markdown(f'<div class="scroll-box">{html_cron}</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos sin historial de búsqueda.")
         else:
             st.info("🔎 No hay gestiones programadas.")
