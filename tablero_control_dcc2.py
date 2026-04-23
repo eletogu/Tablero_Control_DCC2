@@ -66,7 +66,7 @@ st.markdown("""
     .panel-priorizacion { border-left-color: #d9534f; }
     .panel-busqueda { border-left-color: #0056b3; }
 
-    /* Centrado para st.table (Top 10) */
+    /* Centrado para st.table */
     .stTable td, .stTable th { text-align: center !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -235,7 +235,8 @@ else:
 
         with st.sidebar:
             st.header("🔍 Gestión")
-            sel_sust = st.multiselect("Filtrar Sustanciador:", sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else [])
+            todos_sustanciadores = sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else []
+            sel_sust = st.multiselect("Filtrar Sustanciador:", todos_sustanciadores)
             if st.button("Limpiar todos los filtros"):
                 st.session_state.filtro_alerta = "TODAS"
                 st.rerun()
@@ -259,8 +260,11 @@ else:
             st.metric("Términos MP", cnt); st.button(f"Ver {cnt} casos", key="b4", on_click=lambda: setattr(st.session_state, 'filtro_alerta', 'MP'))
 
         st.write("---")
+        
+        # --- Lógica de filtrado maestro por Sustanciador ---
         df_disp = df_alertas.copy()
-        if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
+        if sel_sust:
+            df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
         titulo, cols_b = "📋 Inventario de Alertas Activas", ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
         
@@ -271,36 +275,46 @@ else:
             cols_b.insert(3, "No. Registro")
         elif st.session_state.filtro_alerta == "BUSQUEDA":
             df_disp, titulo = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])], "🔎 Búsqueda de Bienes Vencida"
-            df_disp['Última Búsqueda'] = df_disp['Ultima_Busqueda'].dt.strftime('%d/%m/%Y').fillna("SIN REGISTRO")
+            if not df_disp.empty:
+                df_disp['Última Búsqueda'] = df_disp['Ultima_Busqueda'].dt.strftime('%d/%m/%Y').fillna("SIN REGISTRO")
             cols_b.append("Última Búsqueda")
         elif st.session_state.filtro_alerta == "MP":
             df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
 
         st.subheader(titulo)
         
-        # Corrección applymap -> map y centrado mediante column_config
-        conf_main = {c: st.column_config.Column(alignment="center") for c in cols_b}
-        # Nota: Pandas 2.1+ usa map en lugar de applymap para Styler
-        styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
-        
-        st.dataframe(styled_main, use_container_width=True, height=450, hide_index=True, column_config=conf_main)
+        if not df_disp.empty:
+            conf_main = {c: st.column_config.Column(alignment="center") for c in cols_b}
+            styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
+            st.dataframe(styled_main, use_container_width=True, height=450, hide_index=True, column_config=conf_main)
+        else:
+            st.info("💡 No hay alertas relevantes para el sustanciador seleccionado en esta categoría.")
 
         # =========================================================
         # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
         # =========================================================
         st.write("---")
         st.subheader("🚨 Top 10: Riesgo Fuerza Ejecutoria")
-        df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza").head(10).copy()
+        
+        # Filtro maestro aplicado al Top 10
+        df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
+        if sel_sust:
+            df_p_fe = df_p_fe[df_p_fe['Sustanciador'].isin(sel_sust)]
+        df_p_fe = df_p_fe.head(10).copy()
+
         if not df_p_fe.empty:
             df_p_fe['Días para Prescribir'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else f"PRESCRITO ({(hoy-x).days} d)")
             df_p_fe['Vencimiento Fuerza'], df_p_fe['Fecha Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
             st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
             st.table(df_p_fe[["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}))
             st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.info("✅ No hay procesos con riesgo de fuerza ejecutoria para el sustanciador seleccionado.")
 
         st.write("---")
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
         
+        # Cálculo de Cronograma
         df_activos = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
         cron_list = []
         for _, r in df_activos.iterrows():
@@ -308,18 +322,22 @@ else:
             l_m = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
             u_f = l_m.iloc[0] if not l_m.empty else pd.NaT
             p_f, es_o = (hoy, True) if pd.isna(u_f) else (u_f + timedelta(days=120), False)
-            cron_list.append({"No. Proceso": r.get(buscar_columna_flexible(df_f, ["No. Proceso", "PROCESO"])), 
-                              "Sustanciador": r.get(col_sust, "N/A"), "Fecha_F": p_f, "Es_Omision": es_o})
+            cron_list.append({
+                "No. Proceso": r.get(buscar_columna_flexible(df_f, ["No. Proceso", "PROCESO"])), 
+                "Sustanciador": r.get(col_sust, "N/A"), 
+                "Fecha_F": p_f, 
+                "Es_Omision": es_o
+            })
         
         df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha_F")
         
+        # Filtro maestro aplicado al Cronograma
+        if sel_sust:
+            df_cron = df_cron[df_cron['Sustanciador'].isin(sel_sust)]
+        
         if not df_cron.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
-            
-            # Máscara para aplicar el color
             mask_o = df_cron["Es_Omision"].values
-            
-            # Preparamos el DF final ELIMINANDO físicamente Es_Omision
             df_cr_final = df_cron[["No. Proceso", "Sustanciador"]].copy()
             df_cr_final['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
             df_cr_final = df_cr_final.reset_index(drop=True)
@@ -331,12 +349,10 @@ else:
                         stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                 return stls
 
-            # Configuración de centrado para el Cronograma
             conf_cron = {c: st.column_config.Column(alignment="center") for c in df_cr_final.columns}
-            
-            # st.dataframe recupera el scroll y la visualización compacta
             st.dataframe(df_cr_final.style.apply(style_red_only_month, axis=None), 
                          use_container_width=True, height=400, hide_index=True, column_config=conf_cron)
-            
             st.markdown('</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos que NO registran búsquedas previas.")
+        else:
+            st.info("🔎 No hay gestiones de búsqueda programadas para el sustanciador seleccionado.")
