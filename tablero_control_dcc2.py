@@ -46,43 +46,38 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA Y REGLAS DE CENTRADO (CSS)
+# 2. ESTÉTICA Y REGLAS DE CENTRADO COMPACTO (CSS)
 # =========================================================
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
     .stMetric { 
-        background-color: #ffffff; padding: 15px; border-radius: 15px; 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-top: 5px solid #003366;
+        background-color: #ffffff; padding: 15px; border-radius: 12px; 
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 5px solid #003366;
     }
-    h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; }
-    .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
+    h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI', sans-serif; }
     
-    .panel-priorizacion, .panel-busqueda {
-        background-color: #ffffff; padding: 20px; border-radius: 15px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
-        border-left: 10px solid #003366;
-    }
-    .panel-priorizacion { border-left-color: #d9534f; }
-    .panel-busqueda { border-left-color: #0056b3; }
-
-    /* CONTENEDOR CON SCROLL PERSONALIZADO */
+    /* Contenedor de Scroll con tamaño controlado */
     .table-container {
-        max-height: 450px;
+        max-height: 350px; /* Tamaño reducido para forzar scroll */
         overflow-y: auto;
         overflow-x: auto;
         border: 1px solid #dee2e6;
-        border-radius: 10px;
+        border-radius: 8px;
         background-color: white;
-        margin-bottom: 20px;
+        margin: 10px auto 25px auto;
+        display: block;
+        width: fit-content; /* Se ajusta al contenido */
+        max-width: 100%;
+        min-width: 60%;
     }
 
-    /* ESTILO DE TABLA HTML PARA CENTRADO ABSOLUTO */
+    /* Tabla HTML Estilizada y Compacta */
     .styled-table {
-        width: 100%;
+        width: auto !important; /* NO se desborda */
+        min-width: 100%;
         border-collapse: collapse;
-        font-family: sans-serif;
-        font-size: 0.9rem;
+        font-size: 0.85rem; /* Fuente más pequeña */
     }
     .styled-table thead th {
         position: sticky;
@@ -90,25 +85,32 @@ st.markdown("""
         background-color: #f1f3f5 !important;
         color: #003366 !important;
         text-align: center !important;
-        padding: 12px 15px;
+        padding: 8px 12px;
         z-index: 2;
         border-bottom: 2px solid #dee2e6;
+        white-space: nowrap;
     }
     .styled-table tbody td {
         text-align: center !important;
-        padding: 10px 15px;
+        padding: 6px 12px;
         border-bottom: 1px solid #eee;
+        color: #333;
+    }
+    
+    /* Panel de Priorización (st.table) */
+    .panel-priorizacion {
+        background-color: #ffffff; padding: 10px; border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
+        border-left: 10px solid #d9534f;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- DICCIONARIO DE MESES ---
 MESES_ES = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
 }
 
-# --- FUNCIONES AUXILIARES ---
 def normalizar_texto(t):
     if pd.isna(t) or t == '': return ""
     texto = "".join((c for c in unicodedata.normalize('NFD', str(t).upper()) if unicodedata.category(c) != 'Mn'))
@@ -152,7 +154,7 @@ links = st.secrets.get("links_onedrive", {})
 if not links:
     st.error("⚠️ Enlaces de datos no configurados.")
 else:
-    with st.spinner('Sincronizando información...'):
+    with st.spinner('Sincronizando información operativa...'):
         bases = {
             "FUIC": descargar_excel(links.get("FUIC"), "PARA ENVIAR"),
             "PROVIDENCIAS": descargar_excel(links.get("PROVIDENCIAS"), "PROVIDENCIAS"),
@@ -162,11 +164,10 @@ else:
 
     if any(isinstance(v, str) for v in bases.values()):
         for v in bases.values(): 
-            if isinstance(v, str): st.error(f"Error de conexión: {v}")
+            if isinstance(v, str): st.error(f"Error: {v}")
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
-        # Normalización básica
         for df in [df_f, df_p, df_b, df_bus]:
             cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
             if cid: df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
@@ -301,24 +302,23 @@ else:
         titulo, cols_b = "Inventario de Alertas Activas", ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
         
         if st.session_state.filtro_alerta == "FUERZA":
-            df_disp, titulo = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"], "🚨 Riesgo Fuerza Ejecutoria"
+            df_disp, titulo = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"], "Riesgo Fuerza Ejecutoria"
         elif st.session_state.filtro_alerta == "MEDIDAS":
-            df_disp, titulo = df_disp[df_disp['Medidas (Inm)'] != "OK"], "🏠 Medidas por Renovar"
+            df_disp, titulo = df_disp[df_disp['Medidas (Inm)'] != "OK"], "Medidas por Renovar"
             cols_b.insert(3, "No. Registro")
         elif st.session_state.filtro_alerta == "BUSQUEDA":
-            df_disp, titulo = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])], "🔎 Búsqueda de Bienes Vencida"
+            df_disp, titulo = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])], "Búsqueda de Bienes Vencida"
             if not df_disp.empty: df_disp['Última Búsqueda'] = df_disp['Ultima_Busqueda'].dt.strftime('%d/%m/%Y').fillna("SIN REGISTRO")
             cols_b.append("Última Búsqueda")
         elif st.session_state.filtro_alerta == "MP":
-            df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
+            df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "Términos Mandamiento"
 
         st.subheader(titulo)
         
         if not df_disp.empty:
-            # GENERACIÓN DE TABLA HTML CON CENTRADO TOTAL
+            # HTML COMPACTO CON CENTRADO TOTAL
             styled_df = df_disp[cols_b].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
             html_table = styled_df.to_html(classes='styled-table', index=False, escape=False)
-            
             st.markdown(f'<div class="table-container">{html_table}</div>', unsafe_allow_html=True)
         else:
             st.info("💡 No hay alertas relevantes para mostrar.")
@@ -343,7 +343,7 @@ else:
             st.markdown(html_t10, unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.info("✅ No hay riesgos inminentes detectados.")
+            st.info("✅ Sin riesgos de fuerza detectados.")
 
         st.write("---")
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
@@ -364,28 +364,22 @@ else:
         if sel_sust: df_cron = df_cron[df_cron['Sustanciador'].isin(sel_sust)]
         
         if not df_cron.empty:
-            st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
-            
-            # Máscara de omisión para aplicar estilo antes de eliminar la columna
+            # Capturar máscara antes de eliminar columna
             mask_o = df_cron["Es_Omision"].values
-            # Eliminamos físicamente la columna técnica
             df_cr_view = df_cron[["No. Proceso", "Sustanciador"]].copy()
             df_cr_view['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
             df_cr_view = df_cr_view.reset_index(drop=True)
 
-            def style_red_month_html(df):
-                styles = pd.DataFrame('', index=df.index, columns=df.columns)
+            def style_red_month_compact(df):
+                stls = pd.DataFrame('', index=df.index, columns=df.columns)
                 for i, is_new in enumerate(mask_o):
                     if is_new:
-                        styles.iloc[i, styles.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-                return styles
+                        stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                return stls
 
-            # Renderizado HTML para Scroll y Centrado Absoluto
-            styled_cron = df_cr_view.style.apply(style_red_month_html, axis=None)
-            html_cron = styled_cron.to_html(classes='styled-table', index=False)
-            
+            # Renderizado Compacto HTML
+            html_cron = df_cr_view.style.apply(style_red_month_compact, axis=None).to_html(classes='styled-table', index=False)
             st.markdown(f'<div class="table-container">{html_cron}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos sin historial de búsqueda.")
         else:
             st.info("🔎 No hay gestiones programadas.")
