@@ -66,7 +66,7 @@ st.markdown("""
     h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; margin-top: 5px; }
     
-    /* Contenedores de Paneles */
+    /* Paneles de información */
     .panel-priorizacion, .panel-busqueda {
         background-color: #ffffff; padding: 20px; border-radius: 15px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
@@ -75,13 +75,15 @@ st.markdown("""
     .panel-priorizacion { border-left-color: #d9534f; }
     .panel-busqueda { border-left-color: #0056b3; }
 
-    /* FORZAR CENTRADO EN TABLAS HTML (st.table) */
-    table { width: 100% !important; margin-left: auto; margin-right: auto; }
-    thead th { text-align: center !important; background-color: #f1f3f5 !important; color: #003366 !important; }
+    /* REGLAS DE CENTRADO PARA TODAS LAS TABLAS */
+    table { width: 100% !important; }
+    thead th { 
+        text-align: center !important; 
+        background-color: #f1f3f5 !important; 
+        color: #003366 !important; 
+        font-weight: bold !important;
+    }
     tbody td { text-align: center !important; }
-    
-    /* FORZAR CENTRADO EN DATAFRAMES INTERACTIVOS */
-    [data-testid="stDataFrame"] td, [data-testid="stDataFrame"] th { text-align: center !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -143,7 +145,7 @@ def descargar_excel(url, nombre_debug, hoja):
         return f"Error en {nombre_debug} (Hoja: {hoja}): {str(e)}"
 
 # =========================================================
-# 3. CARGA Y PROCESAMIENTO
+# 3. CARGA Y PROCESAMIENTO DE DATOS
 # =========================================================
 st.markdown("<h1 style='text-align: center;'>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
 links = st.secrets.get("links_onedrive", None)
@@ -305,10 +307,11 @@ else:
             df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
 
         st.subheader(titulo)
+        # Cambio a st.table para garantizar centrado absoluto en el Inventario
         styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
                                            .set_properties(**{'text-align': 'center'})\
                                            .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
-        st.dataframe(styled_main, use_container_width=True, hide_index=True)
+        st.table(styled_main)
 
         # =========================================================
         # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
@@ -342,11 +345,12 @@ else:
         
         df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha_F")
         
-        # 3. Función de Estilo (Celda Roja Única)
-        def style_only_month_red(row):
+        # 3. Estilo mes centrado y rojo puntual
+        def style_cron_red(row):
             styles = ['' for _ in row.index]
             if row.Es_Omision:
-                styles[row.index.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold; text-align: center;'
+                idx = row.index.get_loc("Fecha Próxima BB")
+                styles[idx] = 'background-color: #f8d7da; color: #721c24; font-weight: bold; text-align: center;'
             return styles
 
         if not df_cron.empty:
@@ -354,14 +358,13 @@ else:
             df_cron_v = df_cron.copy()
             df_cron_v['Fecha Próxima BB'] = df_cron_v['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
             
-            # Crear el objeto Styler, centrarlo, ocultar columnas técnicas y aplicar color
+            # Ocultar la columna Es_Omision asegurando que el Styler sea quien la gestione
             styled_cron = df_cron_v[["No. Proceso", "Sustanciador", "Fecha Próxima BB", "Es_Omision"]].style\
-                                   .apply(style_only_month_red, axis=1)\
+                                   .apply(style_cron_red, axis=1)\
                                    .set_properties(**{'text-align': 'center'})\
                                    .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])\
                                    .hide(axis="columns", subset=["Es_Omision"])
             
-            # Usar st.table para garantizar look similar al Top 10 y centrado total
             st.table(styled_cron)
             st.markdown('</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos que NO registran búsquedas previas.")
