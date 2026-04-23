@@ -75,7 +75,6 @@ st.markdown("""
         border-left: 10px solid #0056b3; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
-    /* Centrado de datos */
     [data-testid="stDataFrame"] td { text-align: center !important; }
     [data-testid="stTable"] td { text-align: center !important; }
     [data-testid="stTable"] th { text-align: center !important; }
@@ -85,6 +84,7 @@ st.markdown("""
 if 'filtro_alerta' not in st.session_state:
     st.session_state.filtro_alerta = "TODAS"
 
+# --- FUNCIONES DE APOYO ---
 def normalizar_texto(t):
     if pd.isna(t) or t == '': return ""
     texto = "".join((c for c in unicodedata.normalize('NFD', str(t).upper()) if unicodedata.category(c) != 'Mn'))
@@ -133,7 +133,7 @@ def descargar_excel(url, nombre_debug, hoja):
         return f"Error en {nombre_debug} (Hoja: {hoja}): {str(e)}"
 
 # =========================================================
-# 3. PROCESAMIENTO DE DATOS
+# 3. CARGA Y PROCESAMIENTO
 # =========================================================
 st.markdown("<h1 style='text-align: center;'>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
 links = st.secrets.get("links_onedrive", None)
@@ -155,15 +155,14 @@ else:
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
-        # Normalización General
+        # Identificadores Maetros
         for df in [df_f, df_p, df_b, df_bus]:
             cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
             if cid:
                 df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
             for col in df.columns:
-                col_upper = col.upper()
-                if "NO. REGISTRO" in col_upper: continue
-                if any(k in col_upper for k in ['FECHA', 'SOLICITUD', 'PRACTICA']):
+                if "NO. REGISTRO" in col.upper(): continue
+                if any(k in col.upper() for k in ['FECHA', 'SOLICITUD', 'PRACTICA']):
                     df[col] = pd.to_datetime(df[col], errors='coerce')
 
         # Etapa dinámica
@@ -175,11 +174,11 @@ else:
             return "N/A"
         df_f['ETAPA_REAL'] = df_f.apply(get_stage, axis=1)
 
-        # Preparación específica para Búsqueda de Bienes
+        # Preparación para Búsqueda de Bienes
         hoy = datetime.now()
-        col_f_busq = buscar_columna_flexible(df_bus, ["Fecha Solicitud"])
-        df_bus_latest = df_bus.groupby('ID_LINK')[col_f_busq].max().reset_index()
-        df_bus_latest.rename(columns={col_f_busq: 'Ultima_Busq_Real'}, inplace=True)
+        col_f_sol = buscar_columna_flexible(df_bus, ["Fecha Solicitud"])
+        df_bus_latest = df_bus.groupby('ID_LINK')[col_f_sol].max().reset_index()
+        df_bus_latest.rename(columns={col_f_sol: 'Ultima_Busq_Real'}, inplace=True)
 
         # Auditoría de Alertas
         alertas = []
@@ -194,8 +193,7 @@ else:
             etapa = str(row['ETAPA_REAL']).upper()
             est_proc = str(row.get(col_estado, "")).upper() if col_estado else ""
             
-            if "ARCHIVADO" in est_proc:
-                continue
+            if "ARCHIVADO" in est_proc: continue
 
             venc_fuerza = pd.NaT
             registro_afectado = ""
@@ -217,9 +215,8 @@ else:
             fej = row.get(col_f_ejec)
             if pd.notna(fej) and pd.isna(row.get(col_f_not)):
                 venc_fuerza = fej + timedelta(days=1826)
-                anios_trans = (hoy - fej).days / 365.25
-                if anios_trans >= 5: al_fe = "PERDIDA"
-                elif anios_trans >= 4: al_fe = "RIESGO ALTO"
+                if (hoy - fej).days / 365.25 >= 5: al_fe = "PERDIDA"
+                elif (hoy - fej).days / 365.25 >= 4: al_fe = "RIESGO ALTO"
 
             # 3. Medidas
             al_me = "OK"
@@ -229,7 +226,7 @@ else:
             if ctb and cfe_reg:
                 inms = b_pr[b_pr[ctb].astype(str).str.contains("INMUEBLE", na=False, case=False)]
                 vencimientos_m = []
-                registros_con_alerta = []
+                registros_alerta = []
                 for _, inm in inms.iterrows():
                     fr = inm[cfe_reg]
                     obs = str(inm.get('OBSERVACIONES', ''))
@@ -240,25 +237,23 @@ else:
                     else: continue
                     vencimientos_m.append(v)
                     if hoy > v or (v - hoy).days / 30 <= 6:
-                        val_reg = str(inm.get(col_reg_b, "")).replace('.0', '') if col_reg_b else ""
-                        if val_reg and val_reg != "nan": registros_con_alerta.append(val_reg)
+                        val_reg = str(inm.get(col_reg_b, "")).replace('.0', '')
+                        if val_reg and val_reg != "nan": registros_alerta.append(val_reg)
                 if vencimientos_m:
                     fv = min(vencimientos_m)
                     if hoy > fv: al_me = "CADUCADO"
                     elif (fv - hoy).days / 30 <= 6: al_me = "RENOVAR YA"
-                    if al_me != "OK": registro_afectado = ", ".join(sorted(list(set(registros_con_alerta))))
+                    if al_me != "OK": registro_afectado = ", ".join(sorted(list(set(registros_alerta))))
 
-            # 4. Búsqueda (Lógica según última fecha en BUSQUEDA DE BIENES)
+            # 4. Búsqueda
             al_bu = "OK"
-            last_date_row = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
-            fb = last_date_row.iloc[0] if not last_date_row.empty else pd.NaT
-            
+            last_date_match = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
+            fb = last_date_match.iloc[0] if not last_date_match.empty else pd.NaT
             if pd.isna(fb): 
                 al_bu = "PENDIENTE"
             else:
-                dias_bus = (hoy - fb).days
-                if dias_bus >= 120: al_bu = "VENCIDA"
-                elif dias_bus >= 90: al_bu = "PRÓXIMA"
+                if (hoy - fb).days >= 120: al_bu = "VENCIDA"
+                elif (hoy - fb).days >= 90: al_bu = "PRÓXIMA"
 
             if any(x != "OK" for x in [al_mp, al_fe, al_me, al_bu]):
                 alertas.append({
@@ -279,7 +274,7 @@ else:
         df_alertas = pd.DataFrame(alertas)
 
         # =========================================================
-        # 4. INTERFAZ DE USUARIO (KPIs)
+        # 4. INTERFAZ: KPIs Y TABLA PRINCIPAL
         # =========================================================
         with st.sidebar:
             st.header("🔍 Gestión")
@@ -294,129 +289,113 @@ else:
 
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            count_fe = len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"])
-            st.metric("Riesgo Fuerza", count_fe)
-            if st.button(f"Ver {count_fe} casos", key="btn_fe"): st.session_state.filtro_alerta = "FUERZA"
+            cnt = len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"])
+            st.metric("Riesgo Fuerza", cnt)
+            if st.button(f"Ver {cnt} casos", key="b1"): st.session_state.filtro_alerta = "FUERZA"
         with c2:
-            count_me = len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"])
-            st.metric("Medidas x Renovar", count_me)
-            if st.button(f"Ver {count_me} casos", key="btn_me"): st.session_state.filtro_alerta = "MEDIDAS"
+            cnt = len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"])
+            st.metric("Medidas x Renovar", cnt)
+            if st.button(f"Ver {cnt} casos", key="b2"): st.session_state.filtro_alerta = "MEDIDAS"
         with c3:
-            count_bu = len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])])
-            st.metric("Búsquedas Vencidas", count_bu)
-            if st.button(f"Ver {count_bu} casos", key="btn_bu"): st.session_state.filtro_alerta = "BUSQUEDA"
+            cnt = len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])])
+            st.metric("Búsquedas Vencidas", cnt)
+            if st.button(f"Ver {cnt} casos", key="b3"): st.session_state.filtro_alerta = "BUSQUEDA"
         with c4:
-            count_mp = len(df_alertas[df_alertas['Mandamiento'] != "OK"])
-            st.metric("Términos MP", count_mp)
-            if st.button(f"Ver {count_mp} casos", key="btn_mp"): st.session_state.filtro_alerta = "MP"
+            cnt = len(df_alertas[df_alertas['Mandamiento'] != "OK"])
+            st.metric("Términos MP", cnt)
+            if st.button(f"Ver {cnt} casos", key="b4"): st.session_state.filtro_alerta = "MP"
 
         st.write("---")
-        
-        # Filtros de Tabla Principal
         df_disp = df_alertas.copy()
         if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
-        titulo_tabla = "📋 Inventario de Alertas Activas"
-        cols_base = ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
+        titulo = "📋 Inventario de Alertas Activas"
+        cols_b = ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
         
         if st.session_state.filtro_alerta == "FUERZA":
             df_disp = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"]
-            titulo_tabla = "🚨 Procesos con Riesgo de Fuerza Ejecutoria"
+            titulo = "🚨 Riesgo Fuerza Ejecutoria"
         elif st.session_state.filtro_alerta == "MEDIDAS":
             df_disp = df_disp[df_disp['Medidas (Inm)'] != "OK"]
-            titulo_tabla = "🏠 Procesos con Medidas por Renovar"
-            cols_base.insert(3, "No. Registro")
+            titulo = "🏠 Medidas por Renovar"
+            cols_b.insert(3, "No. Registro")
         elif st.session_state.filtro_alerta == "BUSQUEDA":
             df_disp = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]
-            titulo_tabla = "🔎 Procesos con Búsqueda de Bienes Vencida/Pendiente"
+            titulo = "🔎 Búsqueda de Bienes Vencida"
             df_disp['Última Búsqueda'] = df_disp['Ultima_Busqueda'].dt.strftime('%d/%m/%Y').fillna("SIN REGISTRO")
-            cols_base.append("Última Búsqueda")
+            cols_b.append("Última Búsqueda")
         elif st.session_state.filtro_alerta == "MP":
             df_disp = df_disp[df_disp['Mandamiento'] != "OK"]
-            titulo_tabla = "⚖️ Procesos con Términos de Mandamiento Vencidos"
+            titulo = "⚖️ Términos Mandamiento"
 
-        df_styled = df_disp[cols_base].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
-                                       .set_properties(**{'text-align': 'center'})\
-                                       .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
-        
-        st.subheader(titulo_tabla)
-        st.dataframe(df_styled, use_container_width=True, hide_index=True)
+        st.subheader(titulo)
+        st.dataframe(df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
+                                    .set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
 
         # =========================================================
-        # 5. MÓDULOS DE PRIORIZACIÓN Y CRONOGRAMA
+        # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
         # =========================================================
         st.write("---")
-        
-        # Bloque 1: Top 10 Fuerza Ejecutoria
         st.subheader("🚨 Top 10: Riesgo Fuerza Ejecutoria")
-        df_prio_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza", ascending=True).head(10).copy()
-        if not df_prio_fe.empty:
-            df_prio_fe['Días para Prescribir'] = df_prio_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x - hoy).days} d" if (x - hoy).days >= 0 else f"PRESCRITO ({(hoy - x).days} d)")
-            df_prio_fe['Vencimiento Fuerza'] = df_prio_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y')
+        df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza").head(10).copy()
+        if not df_p_fe.empty:
+            df_p_fe['Días para Prescribir'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else f"PRESCRITO ({(hoy-x).days} d)")
+            df_p_fe['Vencimiento Fuerza'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y')
+            df_p_fe['Fecha Ejecutoria'] = df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
             st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
-            st.table(df_prio_fe[["No. Proceso", "Sustanciador", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}))
+            st.table(df_p_fe[["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}))
             st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.success("✅ Sin riesgos inminentes de fuerza ejecutoria.")
 
         st.write("---")
-
-        # Bloque 2: CRONOGRAMA DE BÚSQUEDA DE BIENES (AJUSTE SOMBREADO ROJO)
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
-        st.markdown("_Análisis de periodicidad de búsqueda (cada 4 meses) para todos los procesos activos asignados._")
         
-        # 1. Filtrar FUIC (No archivados)
-        col_id_fuic = buscar_columna_flexible(df_f, ["No. Proceso", "PROCESO"])
-        df_activos_fuic = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
+        # 1. Obtener universo FUIC activo (no archivados)
+        col_id_f = buscar_columna_flexible(df_f, ["No. Proceso", "PROCESO"])
+        df_activos = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
         
-        # 2. Preparar el DataFrame de Cronograma
-        cronograma_data = []
-        for _, r_fuic in df_activos_fuic.iterrows():
-            p_id = r_fuic['ID_LINK']
-            sust = r_fuic.get(col_sust, "N/A")
-            n_proc = r_fuic.get(col_id_fuic)
-            l_date_match = df_bus_latest[df_bus_latest['ID_LINK'] == p_id]['Ultima_Busq_Real']
-            ultima_f = l_date_match.iloc[0] if not l_date_match.empty else pd.NaT
+        # 2. Calcular cronograma
+        cron_list = []
+        for _, r in df_activos.iterrows():
+            pid = r['ID_LINK']
+            l_match = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
+            u_f = l_match.iloc[0] if not l_match.empty else pd.NaT
             
-            if pd.isna(ultima_f):
-                prox_f = hoy 
-                es_nueva = True
+            # Si no hay fecha, es hoy y es una OMISIÓN (Rojo)
+            if pd.isna(u_f):
+                p_f = hoy
+                es_omision = True
             else:
-                prox_f = ultima_f + timedelta(days=120) 
-                es_nueva = False
-                
-            cronograma_data.append({
-                "No. Proceso": n_proc,
-                "Sustanciador": sust,
-                "Fecha Próxima BB": prox_f,
-                "Es_Nueva": es_nueva
-            })
+                p_f = u_f + timedelta(days=120)
+                es_omision = False
             
-        df_cron_final = pd.DataFrame(cronograma_data)
-        df_cron_final = df_cron_final.sort_values(by="Fecha Próxima BB", ascending=True)
+            cron_list.append({
+                "No. Proceso": r.get(col_id_f),
+                "Sustanciador": r.get(col_sust, "N/A"),
+                "Fecha Próxima BB": p_f,
+                "Es_Omision": es_omision
+            })
+        
+        df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha Próxima BB")
+        
+        # 3. Aplicar estilo de sombreado rojo
+        def style_cron_table(row):
+            # Pintamos de rojo si la columna auxiliar Es_Omision es True
+            return ['background-color: #f8d7da; color: #721c24; font-weight: bold;' if row.Es_Omision else '' for _ in row.index]
 
-        # 3. Aplicar sombreado rojo corregido
-        def apply_red_highlight(row):
-            # Pintamos de rojo la celda si el proceso no tiene histórico (Es_Nueva = True)
-            return ['background-color: #f8d7da; color: #721c24; font-weight: bold;' if row.Es_Nueva else '' for _ in row.index]
-
-        if not df_cron_final.empty:
+        if not df_cron.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
             
-            # Formateamos la fecha a texto para mostrar
-            df_cron_final['Fecha Próxima BB'] = df_cron_final['Fecha Próxima BB'].dt.strftime('%d/%m/%Y')
+            # Formatear fecha para visualización
+            df_cron['Fecha Próxima BB Display'] = df_cron['Fecha Próxima BB'].dt.strftime('%d/%m/%Y')
             
-            # Columnas finales a mostrar
-            df_cron_display = df_cron_final[["No. Proceso", "Sustanciador", "Fecha Próxima BB", "Es_Nueva"]]
+            # Columnas a mostrar (renombradas)
+            df_final_cron = df_cron[["No. Proceso", "Sustanciador", "Fecha Próxima BB Display", "Es_Omision"]].rename(columns={"Fecha Próxima BB Display": "Fecha Próxima BB"})
             
-            # Crear el objeto con el estilo aplicado a todo el dataframe basado en la condición Es_Nueva
-            styled_df = df_cron_display.style.apply(apply_red_highlight, axis=1)\
-                                             .set_properties(**{'text-align': 'center'})\
-                                             .hide(axis="columns", subset=["Es_Nueva"])\
-                                             .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+            # Aplicamos el estilo y ocultamos la columna técnica Es_Omision
+            styled_table = df_final_cron.style.apply(style_cron_table, axis=1)\
+                                              .set_properties(**{'text-align': 'center'})\
+                                              .hide(axis="columns", subset=["Es_Omision"])
             
-            # MOSTRAR EL OBJETO STYLED
-            st.dataframe(styled_cron, use_container_width=True, hide_index=True) if 'styled_cron' in locals() else st.dataframe(styled_df, use_container_width=True, hide_index=True)
-            
+            st.dataframe(styled_table, use_container_width=True, hide_index=True)
             st.markdown('</div>', unsafe_allow_html=True)
-            st.caption("Nota: Las celdas resaltadas en rojo corresponden a procesos que NO registran búsquedas previas y requieren atención inmediata.")
+            st.caption("Nota: Las celdas en rojo corresponden a procesos sin búsqueda previa (Fecha programada para hoy).")
