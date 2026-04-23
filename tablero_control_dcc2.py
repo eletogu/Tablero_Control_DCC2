@@ -261,7 +261,6 @@ else:
 
         st.write("---")
         
-        # --- Lógica de filtrado maestro por Sustanciador ---
         df_disp = df_alertas.copy()
         if sel_sust:
             df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
@@ -286,7 +285,8 @@ else:
         if not df_disp.empty:
             conf_main = {c: st.column_config.Column(alignment="center") for c in cols_b}
             styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
-            st.dataframe(styled_main, use_container_width=True, height=450, hide_index=True, column_config=conf_main)
+            # SE ELIMINA LA ALTURA FIJA PARA QUE SEA DINÁMICA
+            st.dataframe(styled_main, use_container_width=True, hide_index=True, column_config=conf_main)
         else:
             st.info("💡 No hay alertas relevantes para el sustanciador seleccionado en esta categoría.")
 
@@ -296,7 +296,6 @@ else:
         st.write("---")
         st.subheader("🚨 Top 10: Riesgo Fuerza Ejecutoria")
         
-        # Filtro maestro aplicado al Top 10
         df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
         if sel_sust:
             df_p_fe = df_p_fe[df_p_fe['Sustanciador'].isin(sel_sust)]
@@ -314,7 +313,6 @@ else:
         st.write("---")
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
         
-        # Cálculo de Cronograma
         df_activos = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
         cron_list = []
         for _, r in df_activos.iterrows():
@@ -330,8 +328,6 @@ else:
             })
         
         df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha_F")
-        
-        # Filtro maestro aplicado al Cronograma
         if sel_sust:
             df_cron = df_cron[df_cron['Sustanciador'].isin(sel_sust)]
         
@@ -350,8 +346,9 @@ else:
                 return stls
 
             conf_cron = {c: st.column_config.Column(alignment="center") for c in df_cr_final.columns}
+            # SE ELIMINA LA ALTURA FIJA PARA QUE SEA DINÁMICA
             st.dataframe(df_cr_final.style.apply(style_red_only_month, axis=None), 
-                         use_container_width=True, height=400, hide_index=True, column_config=conf_cron)
+                         use_container_width=True, hide_index=True, column_config=conf_cron)
             st.markdown('</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos que NO registran búsquedas previas.")
         else:
