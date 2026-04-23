@@ -175,10 +175,9 @@ else:
             return "N/A"
         df_f['ETAPA_REAL'] = df_f.apply(get_stage, axis=1)
 
-        # Preparación específica para Búsqueda de Bienes (Requerimiento 2)
+        # Preparación específica para Búsqueda de Bienes
         hoy = datetime.now()
         col_f_busq = buscar_columna_flexible(df_bus, ["Fecha Solicitud"])
-        # Obtener la última fecha de búsqueda real por cada proceso
         df_bus_latest = df_bus.groupby('ID_LINK')[col_f_busq].max().reset_index()
         df_bus_latest.rename(columns={col_f_busq: 'Ultima_Busq_Real'}, inplace=True)
 
@@ -195,7 +194,6 @@ else:
             etapa = str(row['ETAPA_REAL']).upper()
             est_proc = str(row.get(col_estado, "")).upper() if col_estado else ""
             
-            # Excluir procesos archivados de todo el motor de alertas
             if "ARCHIVADO" in est_proc:
                 continue
 
@@ -363,7 +361,7 @@ else:
 
         st.write("---")
 
-        # Bloque 2: CRONOGRAMA DE BÚSQUEDA DE BIENES (REQUERIMIENTO 2)
+        # Bloque 2: CRONOGRAMA DE BÚSQUEDA DE BIENES (AJUSTE SOMBREADO ROJO)
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
         st.markdown("_Análisis de periodicidad de búsqueda (cada 4 meses) para todos los procesos activos asignados._")
         
@@ -377,17 +375,14 @@ else:
             p_id = r_fuic['ID_LINK']
             sust = r_fuic.get(col_sust, "N/A")
             n_proc = r_fuic.get(col_id_fuic)
-            
-            # Buscar última fecha en BUSQUEDA DE BIENES
             l_date_match = df_bus_latest[df_bus_latest['ID_LINK'] == p_id]['Ultima_Busq_Real']
             ultima_f = l_date_match.iloc[0] if not l_date_match.empty else pd.NaT
             
-            # Cálculo de la próxima fecha
             if pd.isna(ultima_f):
-                prox_f = hoy # Si no hay registro, es hoy mismo
+                prox_f = hoy 
                 es_nueva = True
             else:
-                prox_f = ultima_f + timedelta(days=120) # 4 meses
+                prox_f = ultima_f + timedelta(days=120) 
                 es_nueva = False
                 
             cronograma_data.append({
@@ -398,33 +393,30 @@ else:
             })
             
         df_cron_final = pd.DataFrame(cronograma_data)
-        # Ordenar cronológicamente
         df_cron_final = df_cron_final.sort_values(by="Fecha Próxima BB", ascending=True)
 
-        # 3. Aplicar sombreado rojo si es nueva (no tiene histórico)
-        def highlight_missing(row):
-            # Si Es_Nueva es True, ponemos fondo rojo a la celda de Fecha Próxima BB
-            style = ['' for _ in row.index]
-            if row['Es_Nueva']:
-                idx = row.index.get_loc('Fecha Próxima BB')
-                style[idx] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
-            return style
+        # 3. Aplicar sombreado rojo corregido
+        def apply_red_highlight(row):
+            # Pintamos de rojo la celda si el proceso no tiene histórico (Es_Nueva = True)
+            return ['background-color: #f8d7da; color: #721c24; font-weight: bold;' if row.Es_Nueva else '' for _ in row.index]
 
         if not df_cron_final.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
-            # Formatear la fecha para mostrar
-            df_cron_final['Fecha Próxima BB Display'] = df_cron_final['Fecha Próxima BB'].dt.strftime('%d/%m/%Y')
             
-            # Mostramos las columnas solicitadas
-            cols_to_show = ["No. Proceso", "Sustanciador", "Fecha Próxima BB Display"]
+            # Formateamos la fecha a texto para mostrar
+            df_cron_final['Fecha Próxima BB'] = df_cron_final['Fecha Próxima BB'].dt.strftime('%d/%m/%Y')
             
-            # Usamos dataframe para poder aplicar el estilo condicional por fila/celda
-            styled_cron = df_cron_final.style.apply(highlight_missing, axis=1)\
-                                            .set_properties(**{'text-align': 'center'})\
-                                            .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+            # Columnas finales a mostrar
+            df_cron_display = df_cron_final[["No. Proceso", "Sustanciador", "Fecha Próxima BB", "Es_Nueva"]]
             
-            # Mostramos las columnas correctas renombradas para el usuario
-            st.dataframe(df_cron_final[["No. Proceso", "Sustanciador", "Fecha Próxima BB Display"]].rename(columns={"Fecha Próxima BB Display": "Fecha Próxima BB"}), 
-                         hide_index=True, use_container_width=True)
+            # Crear el objeto con el estilo aplicado a todo el dataframe basado en la condición Es_Nueva
+            styled_df = df_cron_display.style.apply(apply_red_highlight, axis=1)\
+                                             .set_properties(**{'text-align': 'center'})\
+                                             .hide(axis="columns", subset=["Es_Nueva"])\
+                                             .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+            
+            # MOSTRAR EL OBJETO STYLED
+            st.dataframe(styled_cron, use_container_width=True, hide_index=True) if 'styled_cron' in locals() else st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            
             st.markdown('</div>', unsafe_allow_html=True)
-            st.caption("Nota: Las celdas con fecha de hoy y sin registro previo en el archivo de búsquedas requieren atención inmediata.")
+            st.caption("Nota: Las celdas resaltadas en rojo corresponden a procesos que NO registran búsquedas previas y requieren atención inmediata.")
