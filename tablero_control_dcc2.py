@@ -13,6 +13,12 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Dashboard de Control DCC2", layout="wide")
 
+# INICIALIZACIÓN GLOBAL DE SESSION STATE (Evita AttributeError)
+if 'password_correct' not in st.session_state:
+    st.session_state['password_correct'] = False
+if 'filtro_alerta' not in st.session_state:
+    st.session_state.filtro_alerta = "TODAS"
+
 def check_password():
     """Verifica credenciales contra los Secrets de Streamlit."""
     def password_entered():
@@ -27,7 +33,7 @@ def check_password():
         else:
             st.session_state["password_correct"] = False
 
-    if "password_correct" not in st.session_state:
+    if not st.session_state["password_correct"]:
         st.markdown("<h1 style='text-align: center; color: #003366;'>🔐 Acceso Restringido DCC2</h1>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
@@ -35,10 +41,7 @@ def check_password():
             st.text_input("Contraseña", type="password", key="password")
             if st.button("Ingresar"):
                 password_entered()
-                if st.session_state.get("password_correct"):
-                    st.rerun()
-                else:
-                    st.error("😕 Usuario o contraseña incorrectos")
+                st.rerun()
         return False
     return True
 
@@ -46,7 +49,7 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA Y REGLAS DE DISEÑO COMPACTO (CSS)
+# 2. ESTÉTICA Y REGLAS DE DISEÑO EXCEL COMPACTO (CSS)
 # =========================================================
 st.markdown("""
     <style>
@@ -55,50 +58,52 @@ st.markdown("""
         background-color: #ffffff; padding: 10px; border-radius: 12px; 
         box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 5px solid #003366;
     }
-    h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI', sans-serif; }
+    h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; }
     
-    /* CONTENEDOR CON SCROLL VERTICAL Y ANCHO DINÁMICO */
+    /* CONTENEDOR CON SCROLL VERTICAL */
     .table-scroll-container {
         max-height: 350px;
         overflow-y: auto;
-        overflow-x: auto;
+        overflow-x: hidden;
         border: 1px solid #dee2e6;
         border-radius: 6px;
         background-color: white;
-        margin-bottom: 30px;
+        margin-bottom: 25px;
         width: 100%;
     }
 
-    /* TABLA ESTILO EXCEL: CENTRADO ABSOLUTO Y ALTO DE FILA 20PX */
-    .excel-style-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    /* TABLA ESTILO EXCEL UNIFICADA (Centrado y Compacto) */
+    .excel-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-family: 'Segoe UI', sans-serif;
         font-size: 13px;
-        table-layout: auto;
+        table-layout: fixed;
     }
-    .excel-style-table thead th {
+    .excel-table thead th {
         position: sticky;
         top: 0;
         background-color: #f1f3f5 !important;
         color: #003366 !important;
-        text-align: center !important; /* CENTRADO DE TÍTULOS */
-        padding: 4px 10px !important;
+        text-align: center !important;
+        padding: 5px 8px !important;
         z-index: 10;
-        border: 1px solid #dee2e6;
+        border: 1px solid #dee2e6 !important;
         font-weight: bold;
+    }
+    .excel-table tbody td {
+        text-align: center !important;
+        padding: 2px 8px !important; /* Altura mínima tipo Excel */
+        border: 1px solid #dee2e6 !important;
+        height: 20px !important;
+        line-height: 1.1 !important;
+        vertical-align: middle !important;
+        color: #333;
+        overflow: hidden;
+        text-overflow: ellipsis;
         white-space: nowrap;
     }
-    .excel-style-table tbody td {
-        text-align: center !important; /* CENTRADO DE CONTENIDO */
-        padding: 2px 8px !important;  /* ESPACIADO MÍNIMO TIPO EXCEL */
-        border: 1px solid #dee2e6;
-        height: 20px !important;      /* ALTO DE FILA FIJO */
-        line-height: 1 !important;
-        vertical-align: middle;
-        color: #333;
-    }
-    .excel-style-table tbody tr:hover {
+    .excel-table tbody tr:hover {
         background-color: #f1f5f9;
     }
     </style>
@@ -109,7 +114,6 @@ MESES_ES = {
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
 }
 
-# --- FUNCIONES DE APOYO ---
 def normalizar_texto(t):
     if pd.isna(t) or t == '': return ""
     texto = "".join((c for c in unicodedata.normalize('NFD', str(t).upper()) if unicodedata.category(c) != 'Mn'))
@@ -153,7 +157,7 @@ links = st.secrets.get("links_onedrive", {})
 if not links:
     st.error("⚠️ Enlaces de datos no configurados.")
 else:
-    with st.spinner('Sincronizando información operativa...'):
+    with st.spinner('Sincronizando información...'):
         bases = {
             "FUIC": descargar_excel(links.get("FUIC"), "PARA ENVIAR"),
             "PROVIDENCIAS": descargar_excel(links.get("PROVIDENCIAS"), "PROVIDENCIAS"),
@@ -162,7 +166,7 @@ else:
         }
 
     if any(isinstance(v, str) for v in bases.values()):
-        st.error("Error al conectar con las bases de datos.")
+        st.error("Error al conectar con las bases de datos en la nube.")
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
@@ -263,7 +267,7 @@ else:
             st.header("🔍 Gestión")
             todos_sust = sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else []
             sel_sust = st.multiselect("Filtrar Sustanciador:", todos_sust)
-            if st.button("Limpiar filtros"):
+            if st.button("Limpiar todos los filtros"):
                 st.session_state.filtro_alerta = "TODAS"
                 st.rerun()
             st.write("---")
@@ -287,11 +291,10 @@ else:
 
         st.write("---")
         
-        # Filtro Maestro
         df_disp = df_alertas.copy()
         if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
-        titulo, cols_b = "Inventario de Alertas Activas", ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
+        titulo, cols_b = "📋 Inventario de Alertas Activas", ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
         
         if st.session_state.filtro_alerta == "FUERZA":
             df_disp, titulo = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"], "🚨 Riesgo Fuerza Ejecutoria"
@@ -308,15 +311,14 @@ else:
         st.subheader(titulo)
         
         if not df_disp.empty:
-            # RENDERIZADO HTML CON CENTRADO FORZADO
             html_main = df_disp[cols_b].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
-                                             .to_html(classes='excel-style-table', index=False, escape=False)
+                                             .to_html(classes='excel-table', index=False, escape=False)
             st.markdown(f'<div class="table-scroll-container">{html_main}</div>', unsafe_allow_html=True)
         else:
-            st.info("💡 Sin alertas para mostrar.")
+            st.info("💡 No hay información relevante para mostrar.")
 
         # =========================================================
-        # 5. MÓDULOS INFERIORES UNIFICADOS
+        # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
         # =========================================================
         st.write("---")
         st.subheader("🚨 Top 10: Riesgo Fuerza Ejecutoria")
@@ -327,10 +329,9 @@ else:
         if not df_p_fe.empty:
             df_p_fe['Días para Prescribir'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else f"PRESCRITO ({(hoy-x).days} d)")
             df_p_fe['Vencimiento Fuerza'], df_p_fe['Fecha Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
-            
             t10_cols = ["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]
-            html_t10 = df_p_fe[t10_cols].to_html(classes='excel-style-table', index=False)
-            st.markdown(f'<div style="border: 1px solid #dee2e6; border-radius: 6px;">{html_t10}</div>', unsafe_allow_html=True)
+            html_t10 = df_p_fe[t10_cols].to_html(classes='excel-table', index=False)
+            st.markdown(html_t10, unsafe_allow_html=True)
         else:
             st.info("✅ Sin riesgos de fuerza para el funcionario.")
 
@@ -365,7 +366,7 @@ else:
                         stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                 return stls
 
-            html_cron = df_cr_view.style.apply(style_red_month_excel, axis=None).to_html(classes='excel-style-table', index=False)
+            html_cron = df_cr_view.style.apply(style_red_month_excel, axis=None).to_html(classes='excel-table', index=False)
             st.markdown(f'<div class="table-scroll-container">{html_cron}</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos sin historial de búsqueda.")
         else:
