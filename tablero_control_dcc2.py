@@ -46,7 +46,7 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA INSTITUCIONAL Y REGLAS DE CENTRADO
+# 2. ESTÉTICA Y REGLAS DE CENTRADO (CSS)
 # =========================================================
 st.markdown("""
     <style>
@@ -58,39 +58,57 @@ st.markdown("""
     h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
     
-    /* Contenedores con Scroll para evitar desbordamiento */
-    .scroll-container {
+    .panel-priorizacion, .panel-busqueda {
+        background-color: #ffffff; padding: 20px; border-radius: 15px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
+        border-left: 10px solid #003366;
+    }
+    .panel-priorizacion { border-left-color: #d9534f; }
+    .panel-busqueda { border-left-color: #0056b3; }
+
+    /* CONTENEDOR CON SCROLL PERSONALIZADO */
+    .table-container {
         max-height: 450px;
         overflow-y: auto;
-        border-radius: 10px;
+        overflow-x: auto;
         border: 1px solid #dee2e6;
+        border-radius: 10px;
+        background-color: white;
         margin-bottom: 20px;
     }
 
-    /* REGLAS DE CENTRADO ABSOLUTO PARA CABECERAS Y CELDAS (HTML Tables) */
-    table { width: 100% !important; border-collapse: collapse; }
-    thead th { 
-        text-align: center !important; 
-        background-color: #f1f3f5 !important; 
-        color: #003366 !important; 
-        padding: 10px !important;
+    /* ESTILO DE TABLA HTML PARA CENTRADO ABSOLUTO */
+    .styled-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: sans-serif;
+        font-size: 0.9rem;
+    }
+    .styled-table thead th {
         position: sticky;
         top: 0;
-        z-index: 1;
+        background-color: #f1f3f5 !important;
+        color: #003366 !important;
+        text-align: center !important;
+        padding: 12px 15px;
+        z-index: 2;
+        border-bottom: 2px solid #dee2e6;
     }
-    tbody td { 
-        text-align: center !important; 
-        padding: 8px !important;
-        border-bottom: 1px solid #eee !important;
+    .styled-table tbody td {
+        text-align: center !important;
+        padding: 10px 15px;
+        border-bottom: 1px solid #eee;
     }
     </style>
     """, unsafe_allow_html=True)
 
+# --- DICCIONARIO DE MESES ---
 MESES_ES = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
 }
 
+# --- FUNCIONES AUXILIARES ---
 def normalizar_texto(t):
     if pd.isna(t) or t == '': return ""
     texto = "".join((c for c in unicodedata.normalize('NFD', str(t).upper()) if unicodedata.category(c) != 'Mn'))
@@ -106,7 +124,7 @@ def buscar_columna_flexible(df, posibles_nombres):
         if normalizar_texto(col) in posibles_norm: return col
     return None
 
-def color_semaforo(val):
+def color_semaforo_html(val):
     if not isinstance(val, str): return ''
     if val in ['VENCIDO', 'PERDIDA', 'CADUCADO', 'VENCIDA', 'PENDIENTE']:
         return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
@@ -148,6 +166,7 @@ else:
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
+        # Normalización básica
         for df in [df_f, df_p, df_b, df_bus]:
             cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
             if cid: df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
@@ -250,8 +269,8 @@ else:
 
         with st.sidebar:
             st.header("🔍 Gestión")
-            todos_sustanciadores = sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else []
-            sel_sust = st.multiselect("Filtrar Sustanciador:", todos_sustanciadores)
+            todos_sust = sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else []
+            sel_sust = st.multiselect("Filtrar Sustanciador:", todos_sust)
             if st.button("Limpiar todos los filtros"):
                 st.session_state.filtro_alerta = "TODAS"
                 st.rerun()
@@ -277,38 +296,32 @@ else:
         st.write("---")
         
         df_disp = df_alertas.copy()
-        if sel_sust:
-            df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
+        if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
         titulo, cols_b = "Inventario de Alertas Activas", ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
         
         if st.session_state.filtro_alerta == "FUERZA":
-            df_disp, titulo = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"], "Riesgo Fuerza Ejecutoria"
+            df_disp, titulo = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"], "🚨 Riesgo Fuerza Ejecutoria"
         elif st.session_state.filtro_alerta == "MEDIDAS":
-            df_disp, titulo = df_disp[df_disp['Medidas (Inm)'] != "OK"], "Medidas por Renovar"
+            df_disp, titulo = df_disp[df_disp['Medidas (Inm)'] != "OK"], "🏠 Medidas por Renovar"
             cols_b.insert(3, "No. Registro")
         elif st.session_state.filtro_alerta == "BUSQUEDA":
-            df_disp, titulo = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])], "Búsqueda de Bienes Vencida"
-            if not df_disp.empty:
-                df_disp['Última Búsqueda'] = df_disp['Ultima_Busqueda'].dt.strftime('%d/%m/%Y').fillna("SIN REGISTRO")
+            df_disp, titulo = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])], "🔎 Búsqueda de Bienes Vencida"
+            if not df_disp.empty: df_disp['Última Búsqueda'] = df_disp['Ultima_Busqueda'].dt.strftime('%d/%m/%Y').fillna("SIN REGISTRO")
             cols_b.append("Última Búsqueda")
         elif st.session_state.filtro_alerta == "MP":
-            df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "Términos Mandamiento"
+            df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
 
         st.subheader(titulo)
         
         if not df_disp.empty:
-            # Uso de Styler con centrado garantizado en cabeceras (via CSS global y Styler)
-            styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
-                                           .set_properties(**{'text-align': 'center'})\
-                                           .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+            # GENERACIÓN DE TABLA HTML CON CENTRADO TOTAL
+            styled_df = df_disp[cols_b].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
+            html_table = styled_df.to_html(classes='styled-table', index=False, escape=False)
             
-            # Contenedor con Scroll para el Inventario
-            st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-            st.table(styled_main)
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="table-container">{html_table}</div>', unsafe_allow_html=True)
         else:
-            st.info("💡 No hay alertas relevantes para el sustanciador seleccionado.")
+            st.info("💡 No hay alertas relevantes para mostrar.")
 
         # =========================================================
         # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
@@ -317,18 +330,20 @@ else:
         st.subheader("🚨 Top 10: Riesgo Fuerza Ejecutoria")
         
         df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
-        if sel_sust:
-            df_p_fe = df_p_fe[df_p_fe['Sustanciador'].isin(sel_sust)]
+        if sel_sust: df_p_fe = df_p_fe[df_p_fe['Sustanciador'].isin(sel_sust)]
         df_p_fe = df_p_fe.head(10).copy()
 
         if not df_p_fe.empty:
             df_p_fe['Días para Prescribir'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else f"PRESCRITO ({(hoy-x).days} d)")
             df_p_fe['Vencimiento Fuerza'], df_p_fe['Fecha Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
+            
             st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
-            st.table(df_p_fe[["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}).set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}]))
+            t10_cols = ["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]
+            html_t10 = df_p_fe[t10_cols].to_html(classes='styled-table', index=False)
+            st.markdown(html_t10, unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.info("✅ Sin riesgos de fuerza ejecutoria para el funcionario.")
+            st.info("✅ No hay riesgos inminentes detectados.")
 
         st.write("---")
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
@@ -342,40 +357,35 @@ else:
             p_f, es_o = (hoy, True) if pd.isna(u_f) else (u_f + timedelta(days=120), False)
             cron_list.append({
                 "No. Proceso": r.get(buscar_columna_flexible(df_f, ["No. Proceso", "PROCESO"])), 
-                "Sustanciador": r.get(col_sust, "N/A"), 
-                "Fecha_F": p_f, 
-                "Es_Omision": es_o
+                "Sustanciador": r.get(col_sust, "N/A"), "Fecha_F": p_f, "Es_Omision": es_o
             })
         
         df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha_F")
-        if sel_sust:
-            df_cron = df_cron[df_cron['Sustanciador'].isin(sel_sust)]
+        if sel_sust: df_cron = df_cron[df_cron['Sustanciador'].isin(sel_sust)]
         
         if not df_cron.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
             
-            # Máscara de omisión para el estilo
+            # Máscara de omisión para aplicar estilo antes de eliminar la columna
             mask_o = df_cron["Es_Omision"].values
-            # Eliminamos físicamente la columna técnica antes de renderizar
+            # Eliminamos físicamente la columna técnica
             df_cr_view = df_cron[["No. Proceso", "Sustanciador"]].copy()
             df_cr_view['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
             df_cr_view = df_cr_view.reset_index(drop=True)
 
-            def style_red_only_month(df):
-                stls = pd.DataFrame('', index=df.index, columns=df.columns)
+            def style_red_month_html(df):
+                styles = pd.DataFrame('', index=df.index, columns=df.columns)
                 for i, is_new in enumerate(mask_o):
                     if is_new:
-                        stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold; text-align: center;'
-                return stls
+                        styles.iloc[i, styles.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                return styles
 
-            styled_cron = df_cr_view.style.apply(style_red_only_month, axis=None)\
-                                         .set_properties(**{'text-align': 'center'})\
-                                         .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+            # Renderizado HTML para Scroll y Centrado Absoluto
+            styled_cron = df_cr_view.style.apply(style_red_month_html, axis=None)
+            html_cron = styled_cron.to_html(classes='styled-table', index=False)
             
-            # Contenedor con Scroll para el Cronograma
-            st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-            st.table(styled_cron)
+            st.markdown(f'<div class="table-container">{html_cron}</div>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos sin historial de búsqueda.")
         else:
-            st.info("🔎 No hay gestiones de búsqueda programadas.")
+            st.info("🔎 No hay gestiones programadas.")
