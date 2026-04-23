@@ -75,7 +75,7 @@ st.markdown("""
         border-left: 10px solid #0056b3; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
-    /* Estilos para centrar celdas y cabeceras */
+    /* Centrado de datos */
     [data-testid="stDataFrame"] td { text-align: center !important; }
     [data-testid="stTable"] td { text-align: center !important; }
     [data-testid="stTable"] th { text-align: center !important; }
@@ -155,7 +155,7 @@ else:
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
-        # Normalización de Identificadores
+        # Normalización General
         for df in [df_f, df_p, df_b, df_bus]:
             cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
             if cid:
@@ -175,24 +175,31 @@ else:
             return "N/A"
         df_f['ETAPA_REAL'] = df_f.apply(get_stage, axis=1)
 
-        # Auditoría de Alertas
+        # Preparación específica para Búsqueda de Bienes (Requerimiento 2)
         hoy = datetime.now()
+        col_f_busq = buscar_columna_flexible(df_bus, ["Fecha Solicitud"])
+        # Obtener la última fecha de búsqueda real por cada proceso
+        df_bus_latest = df_bus.groupby('ID_LINK')[col_f_busq].max().reset_index()
+        df_bus_latest.rename(columns={col_f_busq: 'Ultima_Busq_Real'}, inplace=True)
+
+        # Auditoría de Alertas
         alertas = []
         col_sust = buscar_columna_flexible(df_f, ["Sustanciador a Cargo", "Sustanciador"])
         col_f_ejec = buscar_columna_flexible(df_f, ["Fecha Ejecutoria"])
         col_f_not = buscar_columna_flexible(df_f, ["Fecha Not MP"])
         col_estado = buscar_columna_flexible(df_f, ["Estado Proceso en el Mes que se Rinde"])
-
-        # Identificar columna No. Registro en BIENES
         col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
 
         for _, row in df_f.iterrows():
             pid = row.get('ID_LINK', '')
             etapa = str(row['ETAPA_REAL']).upper()
             est_proc = str(row.get(col_estado, "")).upper() if col_estado else ""
+            
+            # Excluir procesos archivados de todo el motor de alertas
+            if "ARCHIVADO" in est_proc:
+                continue
+
             venc_fuerza = pd.NaT
-            venc_busqueda = pd.NaT
-            ultima_fecha_busq = pd.NaT
             registro_afectado = ""
 
             # 1. Mandamiento
@@ -204,23 +211,22 @@ else:
                 ar = provs[provs[cnp].astype(str).str.contains("AVOCO", na=False, case=False)]
                 fa = ar[cfp].min() if not ar.empty else pd.NaT
                 if pd.notna(fa) and "PERSUASIVA" in etapa:
-                    dias_mp = (hoy - fa).days
-                    if dias_mp >= 90: al_mp = "VENCIDO"
-                    elif dias_mp >= 60: al_mp = "CRÍTICO"
+                    if (hoy - fa).days >= 90: al_mp = "VENCIDO"
+                    elif (hoy - fa).days >= 60: al_mp = "CRÍTICO"
 
             # 2. Fuerza Ejecutoria
             al_fe = "OK"
             fej = row.get(col_f_ejec)
-            if pd.notna(fej) and pd.isna(row.get(col_f_not)) and hasattr(fej, 'year'):
-                venc_fuerza = fej + timedelta(days=1826) # 5 años
+            if pd.notna(fej) and pd.isna(row.get(col_f_not)):
+                venc_fuerza = fej + timedelta(days=1826)
                 anios_trans = (hoy - fej).days / 365.25
                 if anios_trans >= 5: al_fe = "PERDIDA"
                 elif anios_trans >= 4: al_fe = "RIESGO ALTO"
 
-            # 3. Medidas Cautelares (Inmuebles)
+            # 3. Medidas
             al_me = "OK"
             b_pr = df_b[df_b['ID_LINK'] == pid]
-            ctb = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)"])
+            ctb = buscar_columna_flexible(df_b, ["Tipo Bien Identificado"])
             cfe_reg = buscar_columna_flexible(df_b, ["Fecha Práctica, Inscripción o Registro Embargo"])
             if ctb and cfe_reg:
                 inms = b_pr[b_pr[ctb].astype(str).str.contains("INMUEBLE", na=False, case=False)]
@@ -234,37 +240,28 @@ else:
                     elif pd.notna(fr1): v = fr1 + timedelta(days=5*365.25)
                     elif pd.notna(fr): v = fr + timedelta(days=10*365.25)
                     else: continue
-                    
                     vencimientos_m.append(v)
                     if hoy > v or (v - hoy).days / 30 <= 6:
                         val_reg = str(inm.get(col_reg_b, "")).replace('.0', '') if col_reg_b else ""
-                        if val_reg and val_reg != "nan":
-                            registros_con_alerta.append(val_reg)
-                
+                        if val_reg and val_reg != "nan": registros_con_alerta.append(val_reg)
                 if vencimientos_m:
                     fv = min(vencimientos_m)
                     if hoy > fv: al_me = "CADUCADO"
                     elif (fv - hoy).days / 30 <= 6: al_me = "RENOVAR YA"
-                    if al_me != "OK":
-                        registro_afectado = ", ".join(sorted(list(set(registros_con_alerta))))
+                    if al_me != "OK": registro_afectado = ", ".join(sorted(list(set(registros_con_alerta))))
 
-            # 4. Búsqueda de Bienes
+            # 4. Búsqueda (Lógica según última fecha en BUSQUEDA DE BIENES)
             al_bu = "OK"
-            if "ARCHIVADO" not in est_proc:
-                b_bus_df = df_bus[df_bus['ID_LINK'] == pid]
-                cfs_bus = buscar_columna_flexible(df_bus, ["Fecha Solicitud"])
-                fb = b_bus_df[cfs_bus].max() if (not b_bus_df.empty and cfs_bus) else pd.NaT
-                ultima_fecha_busq = fb
-                if pd.isna(fb): 
-                    al_bu = "PENDIENTE"
-                    venc_busqueda = hoy
-                else:
-                    venc_busqueda = fb + timedelta(days=120)
-                    dias_bus = (hoy - fb).days
-                    if dias_bus >= 120: al_bu = "VENCIDA"
-                    elif dias_bus >= 90: al_bu = "PRÓXIMA"
+            last_date_row = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
+            fb = last_date_row.iloc[0] if not last_date_row.empty else pd.NaT
+            
+            if pd.isna(fb): 
+                al_bu = "PENDIENTE"
+            else:
+                dias_bus = (hoy - fb).days
+                if dias_bus >= 120: al_bu = "VENCIDA"
+                elif dias_bus >= 90: al_bu = "PRÓXIMA"
 
-            # Solo incluir si hay alguna alerta activa
             if any(x != "OK" for x in [al_mp, al_fe, al_me, al_bu]):
                 alertas.append({
                     "No. Proceso": row[buscar_columna_flexible(df_f, ["No. Proceso"])],
@@ -278,8 +275,7 @@ else:
                     "Fecha_Ejecutoria": fej,
                     "Vencimiento_Fuerza": venc_fuerza,
                     "No. Registro": registro_afectado,
-                    "Ultima_Busqueda": ultima_fecha_busq,
-                    "Fecha_Proxima_BB": venc_busqueda
+                    "Ultima_Busqueda": fb
                 })
 
         df_alertas = pd.DataFrame(alertas)
@@ -318,7 +314,7 @@ else:
 
         st.write("---")
         
-        # Lógica de Filtrado
+        # Filtros de Tabla Principal
         df_disp = df_alertas.copy()
         if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
@@ -349,7 +345,7 @@ else:
         st.dataframe(df_styled, use_container_width=True, hide_index=True)
 
         # =========================================================
-        # 5. MÓDULOS DE PRIORIZACIÓN Y CRONOGRAMA (VERTICAL)
+        # 5. MÓDULOS DE PRIORIZACIÓN Y CRONOGRAMA
         # =========================================================
         st.write("---")
         
@@ -367,18 +363,68 @@ else:
 
         st.write("---")
 
-        # Bloque 2: Cronograma Completo de Búsqueda de Bienes
+        # Bloque 2: CRONOGRAMA DE BÚSQUEDA DE BIENES (REQUERIMIENTO 2)
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
-        st.markdown("_Este listado incluye todos los procesos con alertas activas, ordenados por la fecha de búsqueda más próxima._")
+        st.markdown("_Análisis de periodicidad de búsqueda (cada 4 meses) para todos los procesos activos asignados._")
         
-        # Filtramos y ordenamos todos los procesos por fecha próxima de búsqueda
-        df_prio_bb_all = df_alertas[df_alertas['Fecha_Proxima_BB'].notna()].sort_values(by="Fecha_Proxima_BB", ascending=True).copy()
+        # 1. Filtrar FUIC (No archivados)
+        col_id_fuic = buscar_columna_flexible(df_f, ["No. Proceso", "PROCESO"])
+        df_activos_fuic = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
         
-        if not df_prio_bb_all.empty:
-            df_prio_bb_all['Fecha Próxima BB'] = df_prio_bb_all['Fecha_Proxima_BB'].dt.strftime('%d/%m/%Y')
+        # 2. Preparar el DataFrame de Cronograma
+        cronograma_data = []
+        for _, r_fuic in df_activos_fuic.iterrows():
+            p_id = r_fuic['ID_LINK']
+            sust = r_fuic.get(col_sust, "N/A")
+            n_proc = r_fuic.get(col_id_fuic)
+            
+            # Buscar última fecha en BUSQUEDA DE BIENES
+            l_date_match = df_bus_latest[df_bus_latest['ID_LINK'] == p_id]['Ultima_Busq_Real']
+            ultima_f = l_date_match.iloc[0] if not l_date_match.empty else pd.NaT
+            
+            # Cálculo de la próxima fecha
+            if pd.isna(ultima_f):
+                prox_f = hoy # Si no hay registro, es hoy mismo
+                es_nueva = True
+            else:
+                prox_f = ultima_f + timedelta(days=120) # 4 meses
+                es_nueva = False
+                
+            cronograma_data.append({
+                "No. Proceso": n_proc,
+                "Sustanciador": sust,
+                "Fecha Próxima BB": prox_f,
+                "Es_Nueva": es_nueva
+            })
+            
+        df_cron_final = pd.DataFrame(cronograma_data)
+        # Ordenar cronológicamente
+        df_cron_final = df_cron_final.sort_values(by="Fecha Próxima BB", ascending=True)
+
+        # 3. Aplicar sombreado rojo si es nueva (no tiene histórico)
+        def highlight_missing(row):
+            # Si Es_Nueva es True, ponemos fondo rojo a la celda de Fecha Próxima BB
+            style = ['' for _ in row.index]
+            if row['Es_Nueva']:
+                idx = row.index.get_loc('Fecha Próxima BB')
+                style[idx] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+            return style
+
+        if not df_cron_final.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
-            # Mostramos el listado completo (no solo top 10)
-            st.table(df_prio_bb_all[["No. Proceso", "Sustanciador", "Fecha Próxima BB"]].style.set_properties(**{'text-align': 'center'}))
+            # Formatear la fecha para mostrar
+            df_cron_final['Fecha Próxima BB Display'] = df_cron_final['Fecha Próxima BB'].dt.strftime('%d/%m/%Y')
+            
+            # Mostramos las columnas solicitadas
+            cols_to_show = ["No. Proceso", "Sustanciador", "Fecha Próxima BB Display"]
+            
+            # Usamos dataframe para poder aplicar el estilo condicional por fila/celda
+            styled_cron = df_cron_final.style.apply(highlight_missing, axis=1)\
+                                            .set_properties(**{'text-align': 'center'})\
+                                            .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+            
+            # Mostramos las columnas correctas renombradas para el usuario
+            st.dataframe(df_cron_final[["No. Proceso", "Sustanciador", "Fecha Próxima BB Display"]].rename(columns={"Fecha Próxima BB Display": "Fecha Próxima BB"}), 
+                         hide_index=True, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.info("ℹ️ No hay búsquedas programadas actualmente.")
+            st.caption("Nota: Las celdas con fecha de hoy y sin registro previo en el archivo de búsquedas requieren atención inmediata.")
