@@ -66,18 +66,16 @@ st.markdown("""
     .panel-priorizacion { border-left-color: #d9534f; }
     .panel-busqueda { border-left-color: #0056b3; }
 
-    /* Estilo para st.table (Top 10) que sigue siendo estático */
+    /* Centrado para st.table (Top 10) */
     .stTable td, .stTable th { text-align: center !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- DICCIONARIO DE MESES ---
 MESES_ES = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
 }
 
-# --- FUNCIONES AUXILIARES ---
 def normalizar_texto(t):
     if pd.isna(t) or t == '': return ""
     texto = "".join((c for c in unicodedata.normalize('NFD', str(t).upper()) if unicodedata.category(c) != 'Mn'))
@@ -91,15 +89,6 @@ def buscar_columna_flexible(df, posibles_nombres):
     posibles_norm = [normalizar_texto(n) for n in posibles_nombres]
     for col in df.columns:
         if normalizar_texto(col) in posibles_norm: return col
-    return None
-
-def extraer_fecha_renovacion(texto, tipo):
-    if pd.isna(texto): return None
-    patron = f"RENOVACION {tipo}\\s+(\\d{{2}}/\\d{{2}}/\\d{{4}})"
-    match = re.search(patron, normalizar_texto(texto))
-    if match:
-        try: return datetime.strptime(match.group(1), "%d/%m/%Y")
-        except: return None
     return None
 
 def color_semaforo(val):
@@ -144,7 +133,6 @@ else:
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
-        # Normalización
         for df in [df_f, df_p, df_b, df_bus]:
             cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
             if cid: df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
@@ -152,7 +140,6 @@ else:
                 if any(k in col.upper() for k in ['FECHA', 'SOLICITUD', 'PRACTICA']) and "REGISTRO" not in col.upper():
                     df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        # Auditoría de Alertas
         hoy = datetime.now()
         col_f_busq = buscar_columna_flexible(df_bus, ["Fecha Solicitud"])
         df_bus_latest = df_bus.groupby('ID_LINK')[col_f_busq].max().reset_index()
@@ -165,7 +152,6 @@ else:
         col_estado = buscar_columna_flexible(df_f, ["Estado Proceso en el Mes que se Rinde"])
         col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
         
-        # Etapa dinámica
         cols_etapas = [c for c in df_f.columns if 'ETAPA' in c.upper()]
         def get_stage(row):
             for col in reversed(cols_etapas):
@@ -182,7 +168,6 @@ else:
             al_mp, al_fe, al_me, al_bu = "OK", "OK", "OK", "OK"
             venc_fuerza, fb, registro_afectado = pd.NaT, pd.NaT, ""
 
-            # 1. Mandamiento
             provs = df_p[df_p['ID_LINK'] == pid]
             cnp, cfp = buscar_columna_flexible(df_p, ["Nombre Providencia"]), buscar_columna_flexible(df_p, ["Fecha Providencia"])
             if cnp and cfp:
@@ -192,14 +177,12 @@ else:
                     if (hoy - fa).days >= 90: al_mp = "VENCIDO"
                     elif (hoy - fa).days >= 60: al_mp = "CRÍTICO"
 
-            # 2. Fuerza Ejecutoria
             fej = row.get(col_f_ejec)
             if pd.notna(fej) and pd.isna(row.get(col_f_not)):
                 venc_fuerza = fej + timedelta(days=1826)
                 if (hoy - fej).days / 365.25 >= 5: al_fe = "PERDIDA"
                 elif (hoy - fej).days / 365.25 >= 4: al_fe = "RIESGO ALTO"
 
-            # 3. Medidas
             b_pr = df_b[df_b['ID_LINK'] == pid]
             ctb, cfe_reg = buscar_columna_flexible(df_b, ["Tipo Bien Identificado"]), buscar_columna_flexible(df_b, ["Fecha Práctica, Inscripción o Registro Embargo"])
             if ctb and cfe_reg:
@@ -208,8 +191,13 @@ else:
                 for _, inm in inms.iterrows():
                     fr = inm[cfe_reg]
                     obs = str(inm.get('OBSERVACIONES', ''))
-                    fr2, fr1 = extraer_fecha_renovacion(obs, "2"), extraer_fecha_renovacion(obs, "1")
-                    v = fr2 + timedelta(days=1826) if pd.notna(fr2) else (fr1 + timedelta(days=1826) if pd.notna(fr1) else (fr + timedelta(days=3652) if pd.notna(fr) else None))
+                    patron = r'RENOVACION \d\s+(\d{2}/\d{2}/\d{4})'
+                    match = re.search(patron, normalizar_texto(obs))
+                    v = None
+                    if match:
+                        try: v = datetime.strptime(match.group(1), "%d/%m/%Y") + timedelta(days=1826)
+                        except: pass
+                    if not v and pd.notna(fr): v = fr + timedelta(days=3652)
                     if v:
                         vencimientos_m.append(v)
                         if hoy > v or (v - hoy).days / 30 <= 6:
@@ -221,7 +209,6 @@ else:
                     elif (fv - hoy).days / 30 <= 6: al_me = "RENOVAR YA"
                     if al_me != "OK": registro_afectado = ", ".join(sorted(list(set(registros_alerta))))
 
-            # 4. Búsqueda
             last_date_match = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
             fb = last_date_match.iloc[0] if not last_date_match.empty else pd.NaT
             if pd.isna(fb): al_bu = "PENDIENTE"
@@ -242,7 +229,7 @@ else:
         df_alertas = pd.DataFrame(alertas)
 
         # =========================================================
-        # 4. INTERFAZ: KPIs Y TABLA PRINCIPAL (st.dataframe con SCROLL)
+        # 4. INTERFAZ: KPIs Y TABLA PRINCIPAL
         # =========================================================
         if 'filtro_alerta' not in st.session_state: st.session_state.filtro_alerta = "TODAS"
 
@@ -260,20 +247,16 @@ else:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             cnt = len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"])
-            st.metric("Riesgo Fuerza", cnt)
-            if st.button(f"Ver {cnt} casos", key="b1"): st.session_state.filtro_alerta = "FUERZA"
+            st.metric("Riesgo Fuerza", cnt); st.button(f"Ver {cnt} casos", key="b1", on_click=lambda: setattr(st.session_state, 'filtro_alerta', 'FUERZA'))
         with c2:
             cnt = len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"])
-            st.metric("Medidas x Renovar", cnt)
-            if st.button(f"Ver {cnt} casos", key="b2"): st.session_state.filtro_alerta = "MEDIDAS"
+            st.metric("Medidas x Renovar", cnt); st.button(f"Ver {cnt} casos", key="b2", on_click=lambda: setattr(st.session_state, 'filtro_alerta', 'MEDIDAS'))
         with c3:
             cnt = len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])])
-            st.metric("Búsquedas Vencidas", cnt)
-            if st.button(f"Ver {cnt} casos", key="b3"): st.session_state.filtro_alerta = "BUSQUEDA"
+            st.metric("Búsquedas Vencidas", cnt); st.button(f"Ver {cnt} casos", key="b3", on_click=lambda: setattr(st.session_state, 'filtro_alerta', 'BUSQUEDA'))
         with c4:
             cnt = len(df_alertas[df_alertas['Mandamiento'] != "OK"])
-            st.metric("Términos MP", cnt)
-            if st.button(f"Ver {cnt} casos", key="b4"): st.session_state.filtro_alerta = "MP"
+            st.metric("Términos MP", cnt); st.button(f"Ver {cnt} casos", key="b4", on_click=lambda: setattr(st.session_state, 'filtro_alerta', 'MP'))
 
         st.write("---")
         df_disp = df_alertas.copy()
@@ -294,13 +277,13 @@ else:
             df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
 
         st.subheader(titulo)
-        # CONFIGURACIÓN DE COLUMNAS PARA CENTRAR EN DATAFRAME
-        conf_columnas = {c: st.column_config.Column(alignment="center") for c in cols_b}
         
-        styled_main = df_disp[cols_b].style.applymap(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
+        # Corrección applymap -> map y centrado mediante column_config
+        conf_main = {c: st.column_config.Column(alignment="center") for c in cols_b}
+        # Nota: Pandas 2.1+ usa map en lugar de applymap para Styler
+        styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
         
-        # USO DE DATAFRAME PARA RECUPERAR SCROLL Y TAMAÑO CONTROLADO
-        st.dataframe(styled_main, use_container_width=True, height=450, hide_index=True, column_config=conf_columnas)
+        st.dataframe(styled_main, use_container_width=True, height=450, hide_index=True, column_config=conf_main)
 
         # =========================================================
         # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
@@ -318,43 +301,41 @@ else:
         st.write("---")
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
         
-        # Cálculo de Cronograma sobre FUIC activo
         df_activos = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
         cron_list = []
         for _, r in df_activos.iterrows():
             pid = r['ID_LINK']
-            l_match = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
-            u_f = l_match.iloc[0] if not l_match.empty else pd.NaT
-            p_f, es_omision = (hoy, True) if pd.isna(u_f) else (u_f + timedelta(days=120), False)
+            l_m = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
+            u_f = l_m.iloc[0] if not l_m.empty else pd.NaT
+            p_f, es_o = (hoy, True) if pd.isna(u_f) else (u_f + timedelta(days=120), False)
             cron_list.append({"No. Proceso": r.get(buscar_columna_flexible(df_f, ["No. Proceso", "PROCESO"])), 
-                              "Sustanciador": r.get(col_sust, "N/A"), "Fecha_F": p_f, "Es_Omision": es_omision})
+                              "Sustanciador": r.get(col_sust, "N/A"), "Fecha_F": p_f, "Es_Omision": es_o})
         
         df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha_F")
         
         if not df_cron.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
             
-            # --- LÓGICA DEFINITIVA PARA ELIMINAR Es_Omision ---
-            # 1. Extraemos la máscara de omisión
-            mask_omision = df_cron["Es_Omision"].values
+            # Máscara para aplicar el color
+            mask_o = df_cron["Es_Omision"].values
             
-            # 2. Creamos el DataFrame final sin la columna técnica
-            df_cron_final = df_cron[["No. Proceso", "Sustanciador"]].copy()
-            df_cron_final['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
-            df_cron_final = df_cron_final.reset_index(drop=True)
+            # Preparamos el DF final ELIMINANDO físicamente Es_Omision
+            df_cr_final = df_cron[["No. Proceso", "Sustanciador"]].copy()
+            df_cr_final['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
+            df_cr_final = df_cr_final.reset_index(drop=True)
 
-            def style_red_month(df):
+            def style_red_only_month(df):
                 stls = pd.DataFrame('', index=df.index, columns=df.columns)
-                for i, is_new in enumerate(mask_omision):
+                for i, is_new in enumerate(mask_o):
                     if is_new:
                         stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                 return stls
 
-            # CONFIGURACIÓN DE CENTRADO PARA CRONOGRAMA
-            conf_cron = {c: st.column_config.Column(alignment="center") for c in df_cron_final.columns}
+            # Configuración de centrado para el Cronograma
+            conf_cron = {c: st.column_config.Column(alignment="center") for c in df_cr_final.columns}
             
-            # USO DE DATAFRAME PARA RECUPERAR SCROLL Y QUITAR Es_Omision FÍSICAMENTE
-            st.dataframe(df_cron_final.style.apply(style_red_month, axis=None), 
+            # st.dataframe recupera el scroll y la visualización compacta
+            st.dataframe(df_cr_final.style.apply(style_red_only_month, axis=None), 
                          use_container_width=True, height=400, hide_index=True, column_config=conf_cron)
             
             st.markdown('</div>', unsafe_allow_html=True)
