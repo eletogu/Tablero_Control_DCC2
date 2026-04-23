@@ -46,7 +46,7 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA INSTITUCIONAL
+# 2. ESTÉTICA INSTITUCIONAL Y REGLAS DE CENTRADO
 # =========================================================
 st.markdown("""
     <style>
@@ -58,25 +58,30 @@ st.markdown("""
     h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
     
-    .panel-priorizacion, .panel-busqueda {
-        background-color: #ffffff; padding: 20px; border-radius: 15px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
-        border-left: 10px solid #003366;
-    }
-    .panel-priorizacion { border-left-color: #d9534f; }
-    .panel-busqueda { border-left-color: #0056b3; }
-
-    /* Centrado para st.table */
-    .stTable td, .stTable th { text-align: center !important; }
-    
-    /* Estilo para títulos centrados personalizados */
-    .titulo-centrado {
-        text-align: center;
-        color: #003366;
-        font-family: 'Segoe UI Semibold', sans-serif;
+    /* Contenedores con Scroll para evitar desbordamiento */
+    .scroll-container {
+        max-height: 450px;
+        overflow-y: auto;
+        border-radius: 10px;
+        border: 1px solid #dee2e6;
         margin-bottom: 20px;
-        font-size: 1.5rem;
-        font-weight: 600;
+    }
+
+    /* REGLAS DE CENTRADO ABSOLUTO PARA CABECERAS Y CELDAS (HTML Tables) */
+    table { width: 100% !important; border-collapse: collapse; }
+    thead th { 
+        text-align: center !important; 
+        background-color: #f1f3f5 !important; 
+        color: #003366 !important; 
+        padding: 10px !important;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+    tbody td { 
+        text-align: center !important; 
+        padding: 8px !important;
+        border-bottom: 1px solid #eee !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -129,7 +134,7 @@ links = st.secrets.get("links_onedrive", {})
 if not links:
     st.error("⚠️ Enlaces de datos no configurados.")
 else:
-    with st.spinner('Sincronizando información operativa...'):
+    with st.spinner('Sincronizando información...'):
         bases = {
             "FUIC": descargar_excel(links.get("FUIC"), "PARA ENVIAR"),
             "PROVIDENCIAS": descargar_excel(links.get("PROVIDENCIAS"), "PROVIDENCIAS"),
@@ -239,7 +244,7 @@ else:
         df_alertas = pd.DataFrame(alertas)
 
         # =========================================================
-        # 4. INTERFAZ: KPIs Y TABLA PRINCIPAL
+        # 4. INTERFAZ: KPIs Y TABLA PRINCIPAL (INVENTARIO)
         # =========================================================
         if 'filtro_alerta' not in st.session_state: st.session_state.filtro_alerta = "TODAS"
 
@@ -275,38 +280,41 @@ else:
         if sel_sust:
             df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
-        titulo, cols_b = "📋 Inventario de Alertas Activas", ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
+        titulo, cols_b = "Inventario de Alertas Activas", ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
         
         if st.session_state.filtro_alerta == "FUERZA":
-            df_disp, titulo = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"], "🚨 Riesgo Fuerza Ejecutoria"
+            df_disp, titulo = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"], "Riesgo Fuerza Ejecutoria"
         elif st.session_state.filtro_alerta == "MEDIDAS":
-            df_disp, titulo = df_disp[df_disp['Medidas (Inm)'] != "OK"], "🏠 Medidas por Renovar"
+            df_disp, titulo = df_disp[df_disp['Medidas (Inm)'] != "OK"], "Medidas por Renovar"
             cols_b.insert(3, "No. Registro")
         elif st.session_state.filtro_alerta == "BUSQUEDA":
-            df_disp, titulo = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])], "🔎 Búsqueda de Bienes Vencida"
+            df_disp, titulo = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])], "Búsqueda de Bienes Vencida"
             if not df_disp.empty:
                 df_disp['Última Búsqueda'] = df_disp['Ultima_Busqueda'].dt.strftime('%d/%m/%Y').fillna("SIN REGISTRO")
             cols_b.append("Última Búsqueda")
         elif st.session_state.filtro_alerta == "MP":
-            df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
+            df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "Términos Mandamiento"
 
-        # TÍTULO CENTRADO PARA INVENTARIO
-        st.markdown(f'<div class="titulo-centrado">{titulo}</div>', unsafe_allow_html=True)
+        st.subheader(titulo)
         
         if not df_disp.empty:
-            conf_main = {c: st.column_config.Column(alignment="center") for c in cols_b}
-            styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
-            st.dataframe(styled_main, use_container_width=True, hide_index=True, column_config=conf_main)
+            # Uso de Styler con centrado garantizado en cabeceras (via CSS global y Styler)
+            styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
+                                           .set_properties(**{'text-align': 'center'})\
+                                           .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+            
+            # Contenedor con Scroll para el Inventario
+            st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+            st.table(styled_main)
+            st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.info("💡 No hay alertas relevantes para el sustanciador seleccionado en esta categoría.")
+            st.info("💡 No hay alertas relevantes para el sustanciador seleccionado.")
 
         # =========================================================
         # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
         # =========================================================
         st.write("---")
-        # El Top 10 se mantiene como subheader estándar o centrado si prefieres. 
-        # Aquí lo centramos también por consistencia.
-        st.markdown('<div class="titulo-centrado">🚨 Top 10: Riesgo Fuerza Ejecutoria</div>', unsafe_allow_html=True)
+        st.subheader("🚨 Top 10: Riesgo Fuerza Ejecutoria")
         
         df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
         if sel_sust:
@@ -317,14 +325,13 @@ else:
             df_p_fe['Días para Prescribir'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else f"PRESCRITO ({(hoy-x).days} d)")
             df_p_fe['Vencimiento Fuerza'], df_p_fe['Fecha Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
             st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
-            st.table(df_p_fe[["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}))
+            st.table(df_p_fe[["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}).set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}]))
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.info("✅ No hay procesos con riesgo de fuerza ejecutoria para el sustanciador seleccionado.")
+            st.info("✅ Sin riesgos de fuerza ejecutoria para el funcionario.")
 
         st.write("---")
-        # TÍTULO CENTRADO PARA CRONOGRAMA
-        st.markdown('<div class="titulo-centrado">🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes</div>', unsafe_allow_html=True)
+        st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
         
         df_activos = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
         cron_list = []
@@ -346,22 +353,29 @@ else:
         
         if not df_cron.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
+            
+            # Máscara de omisión para el estilo
             mask_o = df_cron["Es_Omision"].values
-            df_cr_final = df_cron[["No. Proceso", "Sustanciador"]].copy()
-            df_cr_final['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
-            df_cr_final = df_cr_final.reset_index(drop=True)
+            # Eliminamos físicamente la columna técnica antes de renderizar
+            df_cr_view = df_cron[["No. Proceso", "Sustanciador"]].copy()
+            df_cr_view['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
+            df_cr_view = df_cr_view.reset_index(drop=True)
 
             def style_red_only_month(df):
                 stls = pd.DataFrame('', index=df.index, columns=df.columns)
                 for i, is_new in enumerate(mask_o):
                     if is_new:
-                        stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                        stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold; text-align: center;'
                 return stls
 
-            conf_cron = {c: st.column_config.Column(alignment="center") for c in df_cr_final.columns}
-            st.dataframe(df_cr_final.style.apply(style_red_only_month, axis=None), 
-                         use_container_width=True, hide_index=True, column_config=conf_cron)
+            styled_cron = df_cr_view.style.apply(style_red_only_month, axis=None)\
+                                         .set_properties(**{'text-align': 'center'})\
+                                         .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+            
+            # Contenedor con Scroll para el Cronograma
+            st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+            st.table(styled_cron)
             st.markdown('</div>', unsafe_allow_html=True)
-            st.caption("Nota: Los meses resaltados en rojo corresponden a procesos que NO registran búsquedas previas.")
+            st.caption("Nota: Los meses resaltados en rojo corresponden a procesos sin historial de búsqueda.")
         else:
-            st.info("🔎 No hay gestiones de búsqueda programadas para el sustanciador seleccionado.")
+            st.info("🔎 No hay gestiones de búsqueda programadas.")
