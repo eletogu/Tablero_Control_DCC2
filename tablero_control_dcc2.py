@@ -60,30 +60,43 @@ st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
     .stMetric { 
-        background-color: #ffffff; padding: 20px; border-radius: 15px; 
+        background-color: #ffffff; padding: 15px; border-radius: 15px; 
         box-shadow: 0 4px 12px rgba(0,0,0,0.1); border-top: 5px solid #003366;
     }
     h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; margin-top: 5px; }
     
-    /* Paneles de información */
+    /* Paneles de información compactos */
     .panel-priorizacion, .panel-busqueda {
-        background-color: #ffffff; padding: 20px; border-radius: 15px;
+        background-color: #ffffff; padding: 15px; border-radius: 15px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
         border-left: 10px solid #003366;
     }
     .panel-priorizacion { border-left-color: #d9534f; }
     .panel-busqueda { border-left-color: #0056b3; }
 
-    /* REGLAS DE CENTRADO PARA TODAS LAS TABLAS */
-    table { width: 100% !important; }
+    /* REGLAS DE CENTRADO Y TAMAÑO CONTROLADO PARA TABLAS */
+    table { 
+        margin-left: auto !important; 
+        margin-right: auto !important; 
+        width: auto !important; /* Evita que se estiren al 100% */
+        min-width: 60% !important;
+        max-width: 95% !important;
+        border-collapse: collapse;
+    }
     thead th { 
         text-align: center !important; 
         background-color: #f1f3f5 !important; 
         color: #003366 !important; 
         font-weight: bold !important;
+        padding: 8px 15px !important;
+        border: 1px solid #dee2e6 !important;
     }
-    tbody td { text-align: center !important; }
+    tbody td { 
+        text-align: center !important; 
+        padding: 6px 15px !important;
+        border: 1px solid #dee2e6 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -307,11 +320,13 @@ else:
             df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
 
         st.subheader(titulo)
-        # Cambio a st.table para garantizar centrado absoluto en el Inventario
-        styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
-                                           .set_properties(**{'text-align': 'center'})\
-                                           .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
-        st.table(styled_main)
+        if not df_disp.empty:
+            styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
+                                               .set_properties(**{'text-align': 'center'})\
+                                               .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+            st.table(styled_main)
+        else:
+            st.info("No hay alertas para mostrar en esta categoría.")
 
         # =========================================================
         # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
@@ -345,25 +360,33 @@ else:
         
         df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha_F")
         
-        # 3. Estilo mes centrado y rojo puntual
-        def style_cron_red(row):
-            styles = ['' for _ in row.index]
-            if row.Es_Omision:
-                idx = row.index.get_loc("Fecha Próxima BB")
-                styles[idx] = 'background-color: #f8d7da; color: #721c24; font-weight: bold; text-align: center;'
-            return styles
-
         if not df_cron.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
-            df_cron_v = df_cron.copy()
-            df_cron_v['Fecha Próxima BB'] = df_cron_v['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
             
-            # Ocultar la columna Es_Omision asegurando que el Styler sea quien la gestione
-            styled_cron = df_cron_v[["No. Proceso", "Sustanciador", "Fecha Próxima BB", "Es_Omision"]].style\
-                                   .apply(style_cron_red, axis=1)\
-                                   .set_properties(**{'text-align': 'center'})\
-                                   .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])\
-                                   .hide(axis="columns", subset=["Es_Omision"])
+            # --- LÓGICA DE VISUALIZACIÓN SIN COLUMNA TÉCNICA ---
+            # Guardamos la serie de Omisión antes de eliminar la columna
+            es_omision_mask = df_cron["Es_Omision"].values
+            
+            # Preparamos el DataFrame final SOLO con las columnas solicitadas
+            df_cron_final = df_cron[["No. Proceso", "Sustanciador"]].copy()
+            df_cron_final['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
+            
+            # Reiniciamos índice para asegurar que el Styler mapee correctamente
+            df_cron_final = df_cron_final.reset_index(drop=True)
+
+            def style_red_specific(df):
+                # Creamos una matriz de estilos vacía del mismo tamaño que el DF
+                styles = pd.DataFrame('', index=df.index, columns=df.columns)
+                # Aplicamos el color rojo SOLO a la columna 'Fecha Próxima BB' de las filas marcadas
+                for i, omision in enumerate(es_omision_mask):
+                    if omision:
+                        styles.iloc[i, styles.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold; text-align: center;'
+                return styles
+
+            # Renderizado final con st.table y estilo por matriz
+            styled_cron = df_cron_final.style.apply(style_red_specific, axis=None)\
+                                             .set_properties(**{'text-align': 'center'})\
+                                             .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
             
             st.table(styled_cron)
             st.markdown('</div>', unsafe_allow_html=True)
