@@ -183,7 +183,7 @@ else:
         col_f_not = buscar_columna_flexible(df_f, ["Fecha Not MP"])
         col_estado = buscar_columna_flexible(df_f, ["Estado Proceso en el Mes que se Rinde"])
 
-        # Identificar columna No. Registro en BIENES para requerimiento 1
+        # Identificar columna No. Registro en BIENES
         col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
 
         for _, row in df_f.iterrows():
@@ -217,7 +217,7 @@ else:
                 if anios_trans >= 5: al_fe = "PERDIDA"
                 elif anios_trans >= 4: al_fe = "RIESGO ALTO"
 
-            # 3. Medidas Cautelares (Inmuebles) - Con captura de No. Registro
+            # 3. Medidas Cautelares (Inmuebles)
             al_me = "OK"
             b_pr = df_b[df_b['ID_LINK'] == pid]
             ctb = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)"])
@@ -236,7 +236,6 @@ else:
                     else: continue
                     
                     vencimientos_m.append(v)
-                    # Si este bien específico genera alerta, guardamos su registro
                     if hoy > v or (v - hoy).days / 30 <= 6:
                         val_reg = str(inm.get(col_reg_b, "")).replace('.0', '') if col_reg_b else ""
                         if val_reg and val_reg != "nan":
@@ -246,7 +245,6 @@ else:
                     fv = min(vencimientos_m)
                     if hoy > fv: al_me = "CADUCADO"
                     elif (fv - hoy).days / 30 <= 6: al_me = "RENOVAR YA"
-                    # Unir registros únicos si hay alerta
                     if al_me != "OK":
                         registro_afectado = ", ".join(sorted(list(set(registros_con_alerta))))
 
@@ -259,7 +257,7 @@ else:
                 ultima_fecha_busq = fb
                 if pd.isna(fb): 
                     al_bu = "PENDIENTE"
-                    venc_busqueda = hoy # Urgente
+                    venc_busqueda = hoy
                 else:
                     venc_busqueda = fb + timedelta(days=120)
                     dias_bus = (hoy - fb).days
@@ -320,7 +318,7 @@ else:
 
         st.write("---")
         
-        # Lógica de Filtrado y Columnas Especiales
+        # Lógica de Filtrado
         df_disp = df_alertas.copy()
         if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
@@ -333,23 +331,17 @@ else:
         elif st.session_state.filtro_alerta == "MEDIDAS":
             df_disp = df_disp[df_disp['Medidas (Inm)'] != "OK"]
             titulo_tabla = "🏠 Procesos con Medidas por Renovar"
-            # Requerimiento 1: Mostrar No. Registro
             cols_base.insert(3, "No. Registro")
         elif st.session_state.filtro_alerta == "BUSQUEDA":
             df_disp = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]
             titulo_tabla = "🔎 Procesos con Búsqueda de Bienes Vencida/Pendiente"
-            # Requerimiento 3: Mostrar última fecha de búsqueda
             df_disp['Última Búsqueda'] = df_disp['Ultima_Busqueda'].dt.strftime('%d/%m/%Y').fillna("SIN REGISTRO")
             cols_base.append("Última Búsqueda")
         elif st.session_state.filtro_alerta == "MP":
             df_disp = df_disp[df_disp['Mandamiento'] != "OK"]
             titulo_tabla = "⚖️ Procesos con Términos de Mandamiento Vencidos"
 
-        # Aplicar estilos a la tabla principal
-        cols_pintar = ["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
-        df_main_show = df_disp[cols_base]
-        
-        df_styled = df_main_show.style.map(color_semaforo, subset=cols_pintar)\
+        df_styled = df_disp[cols_base].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
                                        .set_properties(**{'text-align': 'center'})\
                                        .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
         
@@ -357,30 +349,36 @@ else:
         st.dataframe(df_styled, use_container_width=True, hide_index=True)
 
         # =========================================================
-        # 5. MÓDULOS DE PRIORIZACIÓN
+        # 5. MÓDULOS DE PRIORIZACIÓN Y CRONOGRAMA (VERTICAL)
         # =========================================================
-        col_prio1, col_prio2 = st.columns(2)
+        st.write("---")
+        
+        # Bloque 1: Top 10 Fuerza Ejecutoria
+        st.subheader("🚨 Top 10: Riesgo Fuerza Ejecutoria")
+        df_prio_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza", ascending=True).head(10).copy()
+        if not df_prio_fe.empty:
+            df_prio_fe['Días para Prescribir'] = df_prio_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x - hoy).days} d" if (x - hoy).days >= 0 else f"PRESCRITO ({(hoy - x).days} d)")
+            df_prio_fe['Vencimiento Fuerza'] = df_prio_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y')
+            st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
+            st.table(df_prio_fe[["No. Proceso", "Sustanciador", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}))
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("✅ Sin riesgos inminentes de fuerza ejecutoria.")
 
-        with col_prio1:
-            st.subheader("🚨 Top 10: Riesgo Fuerza Ejecutoria")
-            df_prio_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza", ascending=True).head(10).copy()
-            if not df_prio_fe.empty:
-                df_prio_fe['Días para Prescribir'] = df_prio_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x - hoy).days} d" if (x - hoy).days >= 0 else f"PRESCRITO ({(hoy - x).days} d)")
-                df_prio_fe['Vencimiento Fuerza'] = df_prio_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y')
-                st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
-                st.table(df_prio_fe[["No. Proceso", "Sustanciador", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}))
-                st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.success("✅ Sin riesgos de fuerza ejecutoria.")
+        st.write("---")
 
-        with col_prio2:
-            # Requerimiento 2: Próxima Búsqueda de Bienes
-            st.subheader("🔎 Top 10: Próxima Búsqueda de Bienes")
-            df_prio_bb = df_alertas[df_alertas['Fecha_Proxima_BB'].notna()].sort_values(by="Fecha_Proxima_BB", ascending=True).head(10).copy()
-            if not df_prio_bb.empty:
-                df_prio_bb['Fecha Próxima BB'] = df_prio_bb['Fecha_Proxima_BB'].dt.strftime('%d/%m/%Y')
-                st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
-                st.table(df_prio_bb[["No. Proceso", "Sustanciador", "Fecha Próxima BB"]].style.set_properties(**{'text-align': 'center'}))
-                st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.info("ℹ️ No hay búsquedas programadas próximamente.")
+        # Bloque 2: Cronograma Completo de Búsqueda de Bienes
+        st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
+        st.markdown("_Este listado incluye todos los procesos con alertas activas, ordenados por la fecha de búsqueda más próxima._")
+        
+        # Filtramos y ordenamos todos los procesos por fecha próxima de búsqueda
+        df_prio_bb_all = df_alertas[df_alertas['Fecha_Proxima_BB'].notna()].sort_values(by="Fecha_Proxima_BB", ascending=True).copy()
+        
+        if not df_prio_bb_all.empty:
+            df_prio_bb_all['Fecha Próxima BB'] = df_prio_bb_all['Fecha_Proxima_BB'].dt.strftime('%d/%m/%Y')
+            st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
+            # Mostramos el listado completo (no solo top 10)
+            st.table(df_prio_bb_all[["No. Proceso", "Sustanciador", "Fecha Próxima BB"]].style.set_properties(**{'text-align': 'center'}))
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.info("ℹ️ No hay búsquedas programadas actualmente.")
