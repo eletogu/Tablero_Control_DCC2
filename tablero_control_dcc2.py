@@ -68,6 +68,16 @@ st.markdown("""
 
     /* Centrado para st.table */
     .stTable td, .stTable th { text-align: center !important; }
+    
+    /* Estilo para títulos centrados personalizados */
+    .titulo-centrado {
+        text-align: center;
+        color: #003366;
+        font-family: 'Segoe UI Semibold', sans-serif;
+        margin-bottom: 20px;
+        font-size: 1.5rem;
+        font-weight: 600;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -280,12 +290,12 @@ else:
         elif st.session_state.filtro_alerta == "MP":
             df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
 
-        st.subheader(titulo)
+        # TÍTULO CENTRADO PARA INVENTARIO
+        st.markdown(f'<div class="titulo-centrado">{titulo}</div>', unsafe_allow_html=True)
         
         if not df_disp.empty:
             conf_main = {c: st.column_config.Column(alignment="center") for c in cols_b}
             styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
-            # SE ELIMINA LA ALTURA FIJA PARA QUE SEA DINÁMICA
             st.dataframe(styled_main, use_container_width=True, hide_index=True, column_config=conf_main)
         else:
             st.info("💡 No hay alertas relevantes para el sustanciador seleccionado en esta categoría.")
@@ -294,7 +304,9 @@ else:
         # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
         # =========================================================
         st.write("---")
-        st.subheader("🚨 Top 10: Riesgo Fuerza Ejecutoria")
+        # El Top 10 se mantiene como subheader estándar o centrado si prefieres. 
+        # Aquí lo centramos también por consistencia.
+        st.markdown('<div class="titulo-centrado">🚨 Top 10: Riesgo Fuerza Ejecutoria</div>', unsafe_allow_html=True)
         
         df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
         if sel_sust:
@@ -311,7 +323,8 @@ else:
             st.info("✅ No hay procesos con riesgo de fuerza ejecutoria para el sustanciador seleccionado.")
 
         st.write("---")
-        st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
+        # TÍTULO CENTRADO PARA CRONOGRAMA
+        st.markdown('<div class="titulo-centrado">🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes</div>', unsafe_allow_html=True)
         
         df_activos = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
         cron_list = []
@@ -346,7 +359,6 @@ else:
                 return stls
 
             conf_cron = {c: st.column_config.Column(alignment="center") for c in df_cr_final.columns}
-            # SE ELIMINA LA ALTURA FIJA PARA QUE SEA DINÁMICA
             st.dataframe(df_cr_final.style.apply(style_red_only_month, axis=None), 
                          use_container_width=True, hide_index=True, column_config=conf_cron)
             st.markdown('</div>', unsafe_allow_html=True)
