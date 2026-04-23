@@ -75,9 +75,10 @@ st.markdown("""
         border-left: 10px solid #0056b3; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
-    [data-testid="stDataFrame"] td { text-align: center !important; }
-    [data-testid="stTable"] td { text-align: center !important; }
-    [data-testid="stTable"] th { text-align: center !important; }
+    /* Forzar alineación central global en tablas y dataframes */
+    [data-testid="stDataFrame"] td, [data-testid="stDataFrame"] th { text-align: center !important; }
+    [data-testid="stTable"] td, [data-testid="stTable"] th { text-align: center !important; }
+    .stTable { width: 100%; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -310,7 +311,12 @@ else:
             df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
 
         st.subheader(titulo)
-        st.dataframe(df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]).set_properties(**{'text-align': 'center'}), use_container_width=True, hide_index=True)
+        # Aplicar centrado total a la tabla principal
+        styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
+                                           .set_properties(**{'text-align': 'center'})\
+                                           .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+        
+        st.dataframe(styled_main, use_container_width=True, hide_index=True)
 
         # =========================================================
         # 5. MÓDULOS INFERIORES: TOP 10 Y CRONOGRAMA BB
@@ -322,7 +328,9 @@ else:
             df_p_fe['Días para Prescribir'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else f"PRESCRITO ({(hoy-x).days} d)")
             df_p_fe['Vencimiento Fuerza'], df_p_fe['Fecha Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
             st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
-            st.table(df_p_fe[["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}))
+            # Centrar también los encabezados del Top 10
+            styled_top10 = df_p_fe[["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}).set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+            st.table(styled_top10)
             st.markdown('</div>', unsafe_allow_html=True)
 
         st.write("---")
@@ -338,30 +346,31 @@ else:
             pid = r['ID_LINK']
             l_match = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
             u_f = l_match.iloc[0] if not l_match.empty else pd.NaT
-            
             p_f, es_omision = (hoy, True) if pd.isna(u_f) else (u_f + timedelta(days=120), False)
             cron_list.append({"No. Proceso": r.get(col_id_f), "Sustanciador": r.get(col_sust, "N/A"), "Fecha_F": p_f, "Es_Omision": es_omision})
         
         df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha_F")
         
-        # 3. Formato de mes y estilo
+        # 3. Formato de mes y estilo centrado con color
         def style_cron_red(row):
             styles = ['' for _ in row.index]
             if row.Es_Omision:
+                # Localizamos la columna por nombre una vez procesada
                 styles[row.index.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
             return styles
 
         if not df_cron.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
             df_cron_view = df_cron.copy()
-            # Convertir fecha al mes en texto español
             df_cron_view['Fecha Próxima BB'] = df_cron_view['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
             
             # Columnas visibles (Es_Omision y Fecha_F se usan para estilo/orden pero se ocultan)
             cols_to_show = ["No. Proceso", "Sustanciador", "Fecha Próxima BB", "Es_Omision"]
             
+            # Aplicar centrado a celdas y encabezados del cronograma
             styled_cron = df_cron_view[cols_to_show].style.apply(style_cron_red, axis=1)\
                                                          .set_properties(**{'text-align': 'center'})\
+                                                         .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])\
                                                          .hide(axis="columns", subset=["Es_Omision"])
             
             st.dataframe(styled_cron, use_container_width=True, hide_index=True)
