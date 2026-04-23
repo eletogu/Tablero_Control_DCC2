@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Dashboard de Control DCC2", layout="wide")
 
-# Inicialización de estado para evitar errores de atributo
 if 'password_correct' not in st.session_state:
     st.session_state['password_correct'] = False
 if 'filtro_alerta' not in st.session_state:
@@ -24,7 +23,6 @@ def check_password():
         user_input = st.session_state["username"].strip()
         pass_input = st.session_state["password"].strip()
         creds = st.secrets.get("credentials", {})
-        
         if user_input in creds and str(pass_input) == str(creds[user_input]):
             st.session_state["password_correct"] = True
             del st.session_state["password"]
@@ -48,61 +46,59 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA UNIFICADA TIPO EXCEL (CSS DEFINITIVO)
+# 2. ESTÉTICA EXCEL COMPACTA (CSS RADICAL)
 # =========================================================
 st.markdown("""
     <style>
+    /* Estilos generales */
     .main { background-color: #f8f9fa; }
+    h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI', sans-serif; text-align: center; }
+
+    /* Métricas */
     .stMetric { 
-        background-color: #ffffff; padding: 10px; border-radius: 12px; 
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 5px solid #003366;
+        background-color: #ffffff; padding: 10px; border-radius: 10px; 
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-top: 4px solid #003366;
     }
-    h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI', sans-serif; }
-    
-    /* Contenedor de Scroll Vertical */
-    .scroll-box {
+
+    /* CONTENEDOR DE SCROLL REAL */
+    .contenedor-scroll {
         max-height: 350px;
         overflow-y: auto;
         border: 1px solid #dee2e6;
-        border-radius: 4px;
+        border-radius: 5px;
+        margin-bottom: 20px;
         background-color: white;
-        margin-bottom: 25px;
-        width: 100%;
     }
 
-    /* Tabla Estilo Excel: Centrado y Compacto */
-    .tabla-final {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        font-size: 13px;
+    /* TABLA TIPO EXCEL: CENTRADO Y ALTO 20PX */
+    .tabla-excel {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-family: 'Segoe UI', sans-serif !important;
+        font-size: 12px !important;
     }
-    .tabla-final thead th {
+    .tabla-excel thead th {
         position: sticky;
         top: 0;
         background-color: #f1f3f5 !important;
-        color: #333 !important;
-        text-align: center !important;
+        color: #003366 !important;
+        text-align: center !important; /* Centrado de cabeceras */
         padding: 4px 10px !important;
-        z-index: 10;
-        border: 1px solid #ccc;
-        font-weight: bold;
+        border: 1px solid #ccc !important;
+        z-index: 5;
     }
-    .tabla-final tbody td {
-        text-align: center !important;
-        padding: 2px 8px !important;
-        border: 1px solid #dee2e6;
-        height: 20px !important;
-        line-height: 1 !important;
-        vertical-align: middle;
-        color: #333;
+    .tabla-excel tbody td {
+        text-align: center !important; /* Centrado de celdas */
+        padding: 2px 10px !important;  /* Reducción de altura */
+        border: 1px solid #eee !important;
+        height: 20px !important;       /* Alto Excel */
+        vertical-align: middle !important;
     }
-    .tabla-final tbody tr:hover {
-        background-color: #f1f5f9;
-    }
+    .tabla-excel tbody tr:hover { background-color: #f1f5f9; }
     </style>
     """, unsafe_allow_html=True)
 
+# --- DICCIONARIO DE MESES ---
 MESES_ES = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
@@ -145,7 +141,7 @@ def descargar_excel(url, hoja):
 # =========================================================
 # 3. PROCESAMIENTO DE DATOS
 # =========================================================
-st.markdown("<h1 style='text-align: center;'>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
+st.markdown("<h1>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
 links = st.secrets.get("links_onedrive", {})
 
 if not links:
@@ -160,10 +156,11 @@ else:
         }
 
     if any(isinstance(v, str) for v in bases.values()):
-        st.error("Error al conectar con los datos.")
+        st.error("Error al cargar las bases de datos.")
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
+        # Normalización
         for df in [df_f, df_p, df_b, df_bus]:
             cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
             if cid: df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
@@ -306,12 +303,12 @@ else:
         st.subheader(titulo)
         
         if not df_disp.empty:
-            # RENDERIZADO DEFINITIVO SIN ÍNDICE
+            # RENDERIZADO HTML: SIN ÍNDICE Y CENTRADO
             html_main = df_disp[cols_b].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
-                                             .to_html(classes='tabla-final', index=False, escape=False)
-            st.markdown(f'<div class="scroll-box">{html_main}</div>', unsafe_allow_html=True)
+                                             .to_html(classes='tabla-excel', index=False, escape=False)
+            st.markdown(f'<div class="contenedor-scroll">{html_main}</div>', unsafe_allow_html=True)
         else:
-            st.info("💡 Sin información relevante para mostrar.")
+            st.info("💡 No hay alertas para mostrar.")
 
         # =========================================================
         # 5. MÓDULOS INFERIORES UNIFICADOS
@@ -327,10 +324,10 @@ else:
             df_p_fe['Vencimiento Fuerza'], df_p_fe['Fecha Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
             
             t10_cols = ["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]
-            html_t10 = df_p_fe[t10_cols].to_html(classes='tabla-final', index=False)
+            html_t10 = df_p_fe[t10_cols].to_html(classes='tabla-excel', index=False)
             st.markdown(html_t10, unsafe_allow_html=True)
         else:
-            st.info("✅ Sin riesgos inminentes detectados.")
+            st.info("✅ Sin riesgos inminentes.")
 
         st.write("---")
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
@@ -352,20 +349,18 @@ else:
         
         if not df_cron.empty:
             mask_o = df_cron["Es_Omision"].values
-            # Eliminamos físicamente la columna técnica antes de renderizar
+            # Eliminamos físicamente la columna técnica
             df_cr_view = df_cron[["No. Proceso", "Sustanciador"]].copy()
             df_cr_view['Fecha Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
             df_cr_view = df_cr_view.reset_index(drop=True)
 
-            def style_red_month_html(df):
+            def style_red_month_final(df):
                 stls = pd.DataFrame('', index=df.index, columns=df.columns)
                 for i, is_new in enumerate(mask_o):
                     if is_new:
                         stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                 return stls
 
-            html_cron = df_cr_view.style.apply(style_red_month_html, axis=None).to_html(classes='tabla-final', index=False)
-            st.markdown(f'<div class="scroll-box">{html_cron}</div>', unsafe_allow_html=True)
+            html_cron = df_cr_view.style.apply(style_red_month_final, axis=None).to_html(classes='tabla-excel', index=False)
+            st.markdown(f'<div class="contenedor-scroll">{html_cron}</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos sin historial de búsqueda.")
-        else:
-            st.info("🔎 No hay gestiones programadas.")
