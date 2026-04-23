@@ -20,13 +20,11 @@ def check_password():
         user_input = st.session_state["username"].strip()
         pass_input = st.session_state["password"].strip()
         
-        # Acceso seguro a las credenciales en Secrets
         try:
             creds = st.secrets["credentials"]
         except:
             creds = {}
         
-        # Validación (soporta usuarios con puntos si están en comillas en Secrets)
         if user_input in creds and str(pass_input) == str(creds[user_input]):
             st.session_state["password_correct"] = True
             del st.session_state["password"]
@@ -72,7 +70,6 @@ st.markdown("""
         border-left: 10px solid #d9534f; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
-    /* Estilos para centrar celdas y cabeceras */
     [data-testid="stDataFrame"] td { text-align: center !important; }
     [data-testid="stTable"] td { text-align: center !important; }
     [data-testid="stTable"] th { text-align: center !important; }
@@ -152,18 +149,15 @@ else:
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
-        # Normalización de Identificadores
         for df in [df_f, df_p, df_b, df_bus]:
             cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
             if cid:
                 df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
             for col in df.columns:
-                col_upper = col.upper()
-                if "NO. REGISTRO" in col_upper: continue
-                if any(k in col_upper for k in ['FECHA', 'SOLICITUD', 'PRACTICA']):
+                if "NO. REGISTRO" in col.upper(): continue
+                if any(k in col.upper() for k in ['FECHA', 'SOLICITUD', 'PRACTICA']):
                     df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        # Etapa dinámica (última ETAPA registrada)
         cols_etapas = [c for c in df_f.columns if 'ETAPA' in c.upper()]
         def get_stage(row):
             for col in reversed(cols_etapas):
@@ -172,7 +166,6 @@ else:
             return "N/A"
         df_f['ETAPA_REAL'] = df_f.apply(get_stage, axis=1)
 
-        # Auditoría de Alertas
         hoy = datetime.now()
         alertas = []
         col_sust = buscar_columna_flexible(df_f, ["Sustanciador a Cargo", "Sustanciador"])
@@ -203,12 +196,12 @@ else:
             al_fe = "OK"
             fej = row.get(col_f_ejec)
             if pd.notna(fej) and pd.isna(row.get(col_f_not)) and hasattr(fej, 'year'):
-                venc_fuerza = fej + timedelta(days=1826) # 5 años
+                venc_fuerza = fej + timedelta(days=1826)
                 anios_trans = (hoy - fej).days / 365.25
                 if anios_trans >= 5: al_fe = "PERDIDA"
                 elif anios_trans >= 4: al_fe = "RIESGO ALTO"
 
-            # 3. Medidas Cautelares (Inmuebles)
+            # 3. Medidas
             al_me = "OK"
             b_pr = df_b[df_b['ID_LINK'] == pid]
             ctb = buscar_columna_flexible(df_b, ["Tipo Bien Identificado (Inmueble, Vehículo, Mueble, Cuenta Bancaría, Otros)"])
@@ -230,7 +223,7 @@ else:
                     if hoy > fv: al_me = "CADUCADO"
                     elif (fv - hoy).days / 30 <= 6: al_me = "RENOVAR YA"
 
-            # 4. Búsqueda de Bienes
+            # 4. Búsqueda
             al_bu = "OK"
             if "ARCHIVADO" not in est_proc:
                 b_bus_df = df_bus[df_bus['ID_LINK'] == pid]
@@ -243,7 +236,6 @@ else:
                     if dias_bus >= 120: al_bu = "VENCIDA"
                     elif dias_bus >= 90: al_bu = "PRÓXIMA"
 
-            # Solo incluir si hay alguna alerta activa
             if any(x != "OK" for x in [al_mp, al_fe, al_me, al_bu]):
                 alertas.append({
                     "No. Proceso": row[buscar_columna_flexible(df_f, ["No. Proceso"])],
@@ -261,12 +253,12 @@ else:
         df_alertas = pd.DataFrame(alertas)
 
         # =========================================================
-        # 4. INTERFAZ DE USUARIO
+        # 4. INTERFAZ DE USUARIO (KPIs CON BOTONES)
         # =========================================================
         with st.sidebar:
             st.header("🔍 Gestión")
             sel_sust = st.multiselect("Filtrar Sustanciador:", sorted(df_alertas['Sustanciador'].unique()))
-            if st.button("Limpiar Filtros"):
+            if st.button("Limpiar todos los filtros"):
                 st.session_state.filtro_alerta = "TODAS"
                 st.rerun()
             st.write("---")
@@ -274,18 +266,58 @@ else:
                 st.session_state.password_correct = False
                 st.rerun()
 
-        # KPIs superiores
+        # Fila de métricas con sus respectivos botones de filtrado
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Riesgo Fuerza", len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"]))
-        c2.metric("Medidas x Renovar", len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"]))
-        c3.metric("Búsquedas Vencidas", len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]))
-        c4.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
+        
+        with c1:
+            count_fe = len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"])
+            st.metric("Riesgo Fuerza", count_fe)
+            if st.button(f"Ver {count_fe} casos", key="btn_fe"):
+                st.session_state.filtro_alerta = "FUERZA"
+
+        with c2:
+            count_me = len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"])
+            st.metric("Medidas x Renovar", count_me)
+            if st.button(f"Ver {count_me} casos", key="btn_me"):
+                st.session_state.filtro_alerta = "MEDIDAS"
+
+        with c3:
+            count_bu = len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])])
+            st.metric("Búsquedas Vencidas", count_bu)
+            if st.button(f"Ver {count_bu} casos", key="btn_bu"):
+                st.session_state.filtro_alerta = "BUSQUEDA"
+
+        with c4:
+            count_mp = len(df_alertas[df_alertas['Mandamiento'] != "OK"])
+            st.metric("Términos MP", count_mp)
+            if st.button(f"Ver {count_mp} casos", key="btn_mp"):
+                st.session_state.filtro_alerta = "MP"
 
         st.write("---")
-        df_disp = df_alertas.copy()
-        if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
-        # Tabla Principal Styled (Centrada y Pintada)
+        # Lógica de Filtrado de la Tabla Principal
+        df_disp = df_alertas.copy()
+        
+        # Aplicar filtro de sustanciador primero
+        if sel_sust:
+            df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
+        
+        # Aplicar filtro de alerta por botón
+        titulo_tabla = "📋 Inventario de Alertas Activas"
+        if st.session_state.filtro_alerta == "FUERZA":
+            df_disp = df_disp[df_disp['Fuerza Ejecutoria'] != "OK"]
+            titulo_tabla = "🚨 Procesos con Riesgo de Fuerza Ejecutoria"
+        elif st.session_state.filtro_alerta == "MEDIDAS":
+            df_disp = df_disp[df_disp['Medidas (Inm)'] != "OK"]
+            titulo_tabla = "🏠 Procesos con Medidas por Renovar"
+        elif st.session_state.filtro_alerta == "BUSQUEDA":
+            df_disp = df_disp[df_disp['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]
+            titulo_tabla = "🔎 Procesos con Búsqueda de Bienes Vencida/Pendiente"
+        elif st.session_state.filtro_alerta == "MP":
+            df_disp = df_disp[df_disp['Mandamiento'] != "OK"]
+            titulo_tabla = "⚖️ Procesos con Términos de Mandamiento Vencidos"
+
+        # Mostrar Tabla Principal
         cols_al = ["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
         df_main_show = df_disp.drop(columns=['ID_LINK', 'Fecha_Ejecutoria', 'Vencimiento_Fuerza'])
         
@@ -293,20 +325,19 @@ else:
                                        .set_properties(**{'text-align': 'center'})\
                                        .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
         
-        st.subheader("📋 Inventario de Alertas Activas DCC2")
+        st.subheader(titulo_tabla)
         st.dataframe(df_styled, use_container_width=True, hide_index=True)
 
         # =========================================================
         # 5. MÓDULO PRIORITARIO: TOP 10 FUERZA EJECUTORIA
         # =========================================================
         st.write("---")
-        st.subheader("🚨 Top 10: Procesos con Riesgo de Fuerza Ejecutoria")
+        st.subheader("🚨 Top 10: Procesos con Riesgo Crítico de Fuerza Ejecutoria")
         st.markdown("_Listado priorizado de expedientes próximos a prescribir (5 años desde la ejecutoria)._")
         
         df_prio_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza", ascending=True).head(10).copy()
         
         if not df_prio_fe.empty:
-            # Cálculo de días restantes
             df_prio_fe['Días para Prescribir'] = df_prio_fe['Vencimiento_Fuerza'].apply(
                 lambda x: f"{(x - hoy).days} d" if (x - hoy).days >= 0 else f"PRESCRITO ({(hoy - x).days} d)"
             )
