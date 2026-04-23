@@ -46,61 +46,61 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA UNIFICADA TIPO EXCEL (CSS)
+# 2. ESTÉTICA Y REGLAS DE DISEÑO COMPACTO (CSS)
 # =========================================================
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
     .stMetric { 
-        background-color: #ffffff; padding: 10px; border-radius: 10px; 
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-top: 4px solid #003366;
+        background-color: #ffffff; padding: 10px; border-radius: 12px; 
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 5px solid #003366;
     }
     h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI', sans-serif; }
     
-    /* Contenedor de Scroll Vertical Fijo */
-    .scroll-div {
-        max-height: 300px;
+    /* CONTENEDOR CON SCROLL VERTICAL Y ANCHO DINÁMICO */
+    .table-scroll-container {
+        max-height: 350px;
         overflow-y: auto;
+        overflow-x: auto;
         border: 1px solid #dee2e6;
-        border-radius: 4px;
+        border-radius: 6px;
         background-color: white;
-        margin-bottom: 20px;
+        margin-bottom: 30px;
         width: 100%;
     }
 
-    /* Tabla Estilo Excel con Altura de Fila 20px */
-    .tabla-excel {
+    /* TABLA ESTILO EXCEL: CENTRADO ABSOLUTO Y ALTO DE FILA 20PX */
+    .excel-style-table {
         width: 100%;
         border-collapse: collapse;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         font-size: 13px;
+        table-layout: auto;
     }
-    .tabla-excel thead th {
+    .excel-style-table thead th {
         position: sticky;
         top: 0;
         background-color: #f1f3f5 !important;
-        color: #333 !important;
-        text-align: center !important;
-        padding: 3px 10px !important;
+        color: #003366 !important;
+        text-align: center !important; /* CENTRADO DE TÍTULOS */
+        padding: 4px 10px !important;
         z-index: 10;
-        border: 1px solid #ccc;
-        font-weight: bold;
-    }
-    .tabla-excel tbody td {
-        text-align: center !important;
-        padding: 1px 8px !important; /* Padding mínimo para reducir altura */
         border: 1px solid #dee2e6;
+        font-weight: bold;
+        white-space: nowrap;
+    }
+    .excel-style-table tbody td {
+        text-align: center !important; /* CENTRADO DE CONTENIDO */
+        padding: 2px 8px !important;  /* ESPACIADO MÍNIMO TIPO EXCEL */
+        border: 1px solid #dee2e6;
+        height: 20px !important;      /* ALTO DE FILA FIJO */
         line-height: 1 !important;
-        height: 20px !important; /* Altura de fila compacta tipo Excel */
         vertical-align: middle;
+        color: #333;
     }
-    .tabla-excel tbody tr:hover {
-        background-color: #f8f9fa;
+    .excel-style-table tbody tr:hover {
+        background-color: #f1f5f9;
     }
-    
-    /* Clases de apoyo para los paneles */
-    .panel-rojo { border-left: 5px solid #d9534f; }
-    .panel-azul { border-left: 5px solid #0056b3; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -109,6 +109,7 @@ MESES_ES = {
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
 }
 
+# --- FUNCIONES DE APOYO ---
 def normalizar_texto(t):
     if pd.isna(t) or t == '': return ""
     texto = "".join((c for c in unicodedata.normalize('NFD', str(t).upper()) if unicodedata.category(c) != 'Mn'))
@@ -124,7 +125,7 @@ def buscar_columna_flexible(df, posibles_nombres):
         if normalizar_texto(col) in posibles_norm: return col
     return None
 
-def color_semaforo_css(val):
+def color_semaforo_html(val):
     if not isinstance(val, str): return ''
     if val in ['VENCIDO', 'PERDIDA', 'CADUCADO', 'VENCIDA', 'PENDIENTE']:
         return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
@@ -152,7 +153,7 @@ links = st.secrets.get("links_onedrive", {})
 if not links:
     st.error("⚠️ Enlaces de datos no configurados.")
 else:
-    with st.spinner('Sincronizando información...'):
+    with st.spinner('Sincronizando información operativa...'):
         bases = {
             "FUIC": descargar_excel(links.get("FUIC"), "PARA ENVIAR"),
             "PROVIDENCIAS": descargar_excel(links.get("PROVIDENCIAS"), "PROVIDENCIAS"),
@@ -161,7 +162,7 @@ else:
         }
 
     if any(isinstance(v, str) for v in bases.values()):
-        st.error("Error en la conexión con las bases de datos.")
+        st.error("Error al conectar con las bases de datos.")
     else:
         df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
         
@@ -258,13 +259,11 @@ else:
         # =========================================================
         # 4. INTERFAZ: KPIs Y FILTROS
         # =========================================================
-        if 'filtro_alerta' not in st.session_state: st.session_state.filtro_alerta = "TODAS"
-
         with st.sidebar:
             st.header("🔍 Gestión")
             todos_sust = sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else []
             sel_sust = st.multiselect("Filtrar Sustanciador:", todos_sust)
-            if st.button("Limpiar todos los filtros"):
+            if st.button("Limpiar filtros"):
                 st.session_state.filtro_alerta = "TODAS"
                 st.rerun()
             st.write("---")
@@ -288,6 +287,7 @@ else:
 
         st.write("---")
         
+        # Filtro Maestro
         df_disp = df_alertas.copy()
         if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
         
@@ -308,12 +308,12 @@ else:
         st.subheader(titulo)
         
         if not df_disp.empty:
-            # HTML UNIFICADO TIPO EXCEL
-            html_main = df_disp[cols_b].style.map(color_semaforo_css, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
-                                             .to_html(classes='tabla-excel', index=False, escape=False)
-            st.markdown(f'<div class="scroll-div">{html_main}</div>', unsafe_allow_html=True)
+            # RENDERIZADO HTML CON CENTRADO FORZADO
+            html_main = df_disp[cols_b].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
+                                             .to_html(classes='excel-style-table', index=False, escape=False)
+            st.markdown(f'<div class="table-scroll-container">{html_main}</div>', unsafe_allow_html=True)
         else:
-            st.info("💡 Sin alertas relevantes para mostrar.")
+            st.info("💡 Sin alertas para mostrar.")
 
         # =========================================================
         # 5. MÓDULOS INFERIORES UNIFICADOS
@@ -328,10 +328,9 @@ else:
             df_p_fe['Días para Prescribir'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else f"PRESCRITO ({(hoy-x).days} d)")
             df_p_fe['Vencimiento Fuerza'], df_p_fe['Fecha Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
             
-            # Formato unificado (sin scroll por ser solo 10 filas)
-            cols_t10 = ["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]
-            html_t10 = df_p_fe[cols_t10].to_html(classes='tabla-excel panel-rojo', index=False)
-            st.markdown(html_t10, unsafe_allow_html=True)
+            t10_cols = ["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]
+            html_t10 = df_p_fe[t10_cols].to_html(classes='excel-style-table', index=False)
+            st.markdown(f'<div style="border: 1px solid #dee2e6; border-radius: 6px;">{html_t10}</div>', unsafe_allow_html=True)
         else:
             st.info("✅ Sin riesgos de fuerza para el funcionario.")
 
@@ -366,8 +365,8 @@ else:
                         stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                 return stls
 
-            html_cron = df_cr_view.style.apply(style_red_month_excel, axis=None).to_html(classes='tabla-excel', index=False)
-            st.markdown(f'<div class="scroll-div panel-azul">{html_cron}</div>', unsafe_allow_html=True)
+            html_cron = df_cr_view.style.apply(style_red_month_excel, axis=None).to_html(classes='excel-style-table', index=False)
+            st.markdown(f'<div class="table-scroll-container">{html_cron}</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos sin historial de búsqueda.")
         else:
             st.info("🔎 No hay gestiones programadas.")
