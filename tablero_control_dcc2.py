@@ -65,20 +65,23 @@ st.markdown("""
     }
     h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; }
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; margin-top: 5px; }
-    .panel-priorizacion {
-        background-color: #ffffff; padding: 25px; border-radius: 15px;
-        border-left: 10px solid #d9534f; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-        margin-bottom: 20px;
+    
+    /* Contenedores de Paneles */
+    .panel-priorizacion, .panel-busqueda {
+        background-color: #ffffff; padding: 20px; border-radius: 15px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
+        border-left: 10px solid #003366;
     }
-    .panel-busqueda {
-        background-color: #ffffff; padding: 25px; border-radius: 15px;
-        border-left: 10px solid #0056b3; box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-        margin-bottom: 20px;
-    }
-    /* Forzar alineación central global en tablas y dataframes */
+    .panel-priorizacion { border-left-color: #d9534f; }
+    .panel-busqueda { border-left-color: #0056b3; }
+
+    /* FORZAR CENTRADO EN TABLAS HTML (st.table) */
+    table { width: 100% !important; margin-left: auto; margin-right: auto; }
+    thead th { text-align: center !important; background-color: #f1f3f5 !important; color: #003366 !important; }
+    tbody td { text-align: center !important; }
+    
+    /* FORZAR CENTRADO EN DATAFRAMES INTERACTIVOS */
     [data-testid="stDataFrame"] td, [data-testid="stDataFrame"] th { text-align: center !important; }
-    [data-testid="stTable"] td, [data-testid="stTable"] th { text-align: center !important; }
-    .stTable { width: 100%; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -196,15 +199,12 @@ else:
             est_proc = str(row.get(col_estado, "")).upper() if col_estado else ""
             if "ARCHIVADO" in est_proc: continue
 
-            venc_fuerza = pd.NaT
-            registro_afectado = ""
+            venc_fuerza, registro_afectado = pd.NaT, ""
 
             # 1. Mandamiento
-            al_mp = "OK"
-            provs = df_p[df_p['ID_LINK'] == pid]
-            cnp, cfp = buscar_columna_flexible(df_p, ["Nombre Providencia"]), buscar_columna_flexible(df_p, ["Fecha Providencia"])
+            al_mp, cnp, cfp = "OK", buscar_columna_flexible(df_p, ["Nombre Providencia"]), buscar_columna_flexible(df_p, ["Fecha Providencia"])
             if cnp and cfp:
-                ar = provs[provs[cnp].astype(str).str.contains("AVOCO", na=False, case=False)]
+                ar = df_p[(df_p['ID_LINK'] == pid) & (df_p[cnp].astype(str).str.contains("AVOCO", na=False, case=False))]
                 fa = ar[cfp].min() if not ar.empty else pd.NaT
                 if pd.notna(fa) and "PERSUASIVA" in etapa:
                     if (hoy - fa).days >= 90: al_mp = "VENCIDO"
@@ -227,14 +227,12 @@ else:
                     fr = inm[cfe_reg]
                     obs = str(inm.get('OBSERVACIONES', ''))
                     fr2, fr1 = extraer_fecha_renovacion(obs, "2"), extraer_fecha_renovacion(obs, "1")
-                    if pd.notna(fr2): v = fr2 + timedelta(days=5*365.25)
-                    elif pd.notna(fr1): v = fr1 + timedelta(days=5*365.25)
-                    elif pd.notna(fr): v = fr + timedelta(days=10*365.25)
-                    else: continue
-                    vencimientos_m.append(v)
-                    if hoy > v or (v - hoy).days / 30 <= 6:
-                        val_reg = str(inm.get(col_reg_b, "")).replace('.0', '')
-                        if val_reg and val_reg != "nan": registros_alerta.append(val_reg)
+                    v = fr2 + timedelta(days=5*365.25) if pd.notna(fr2) else (fr1 + timedelta(days=5*365.25) if pd.notna(fr1) else (fr + timedelta(days=10*365.25) if pd.notna(fr) else None))
+                    if v:
+                        vencimientos_m.append(v)
+                        if hoy > v or (v - hoy).days / 30 <= 6:
+                            val_reg = str(inm.get(col_reg_b, "")).replace('.0', '')
+                            if val_reg and val_reg != "nan": registros_alerta.append(val_reg)
                 if vencimientos_m:
                     fv = min(vencimientos_m)
                     if hoy > fv: al_me = "CADUCADO"
@@ -277,20 +275,16 @@ else:
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             cnt = len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"])
-            st.metric("Riesgo Fuerza", cnt)
-            if st.button(f"Ver {cnt} casos", key="b1"): st.session_state.filtro_alerta = "FUERZA"
+            st.metric("Riesgo Fuerza", cnt); st.button(f"Ver {cnt} casos", key="b1", on_click=lambda: setattr(st.session_state, 'filtro_alerta', 'FUERZA'))
         with c2:
             cnt = len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"])
-            st.metric("Medidas x Renovar", cnt)
-            if st.button(f"Ver {cnt} casos", key="b2"): st.session_state.filtro_alerta = "MEDIDAS"
+            st.metric("Medidas x Renovar", cnt); st.button(f"Ver {cnt} casos", key="b2", on_click=lambda: setattr(st.session_state, 'filtro_alerta', 'MEDIDAS'))
         with c3:
             cnt = len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])])
-            st.metric("Búsquedas Vencidas", cnt)
-            if st.button(f"Ver {cnt} casos", key="b3"): st.session_state.filtro_alerta = "BUSQUEDA"
+            st.metric("Búsquedas Vencidas", cnt); st.button(f"Ver {cnt} casos", key="b3", on_click=lambda: setattr(st.session_state, 'filtro_alerta', 'BUSQUEDA'))
         with c4:
             cnt = len(df_alertas[df_alertas['Mandamiento'] != "OK"])
-            st.metric("Términos MP", cnt)
-            if st.button(f"Ver {cnt} casos", key="b4"): st.session_state.filtro_alerta = "MP"
+            st.metric("Términos MP", cnt); st.button(f"Ver {cnt} casos", key="b4", on_click=lambda: setattr(st.session_state, 'filtro_alerta', 'MP'))
 
         st.write("---")
         df_disp = df_alertas.copy()
@@ -311,11 +305,9 @@ else:
             df_disp, titulo = df_disp[df_disp['Mandamiento'] != "OK"], "⚖️ Términos Mandamiento"
 
         st.subheader(titulo)
-        # Aplicar centrado total a la tabla principal
         styled_main = df_disp[cols_b].style.map(color_semaforo, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
                                            .set_properties(**{'text-align': 'center'})\
                                            .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
-        
         st.dataframe(styled_main, use_container_width=True, hide_index=True)
 
         # =========================================================
@@ -328,7 +320,6 @@ else:
             df_p_fe['Días para Prescribir'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else f"PRESCRITO ({(hoy-x).days} d)")
             df_p_fe['Vencimiento Fuerza'], df_p_fe['Fecha Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
             st.markdown('<div class="panel-priorizacion">', unsafe_allow_html=True)
-            # Centrar también los encabezados del Top 10
             styled_top10 = df_p_fe[["No. Proceso", "Sustanciador", "Fecha Ejecutoria", "Vencimiento Fuerza", "Días para Prescribir"]].style.set_properties(**{'text-align': 'center'}).set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
             st.table(styled_top10)
             st.markdown('</div>', unsafe_allow_html=True)
@@ -351,28 +342,26 @@ else:
         
         df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha_F")
         
-        # 3. Formato de mes y estilo centrado con color
-        def style_cron_red(row):
+        # 3. Función de Estilo (Celda Roja Única)
+        def style_only_month_red(row):
             styles = ['' for _ in row.index]
             if row.Es_Omision:
-                # Localizamos la columna por nombre una vez procesada
-                styles[row.index.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+                styles[row.index.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold; text-align: center;'
             return styles
 
         if not df_cron.empty:
             st.markdown('<div class="panel-busqueda">', unsafe_allow_html=True)
-            df_cron_view = df_cron.copy()
-            df_cron_view['Fecha Próxima BB'] = df_cron_view['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
+            df_cron_v = df_cron.copy()
+            df_cron_v['Fecha Próxima BB'] = df_cron_v['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
             
-            # Columnas visibles (Es_Omision y Fecha_F se usan para estilo/orden pero se ocultan)
-            cols_to_show = ["No. Proceso", "Sustanciador", "Fecha Próxima BB", "Es_Omision"]
+            # Crear el objeto Styler, centrarlo, ocultar columnas técnicas y aplicar color
+            styled_cron = df_cron_v[["No. Proceso", "Sustanciador", "Fecha Próxima BB", "Es_Omision"]].style\
+                                   .apply(style_only_month_red, axis=1)\
+                                   .set_properties(**{'text-align': 'center'})\
+                                   .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])\
+                                   .hide(axis="columns", subset=["Es_Omision"])
             
-            # Aplicar centrado a celdas y encabezados del cronograma
-            styled_cron = df_cron_view[cols_to_show].style.apply(style_cron_red, axis=1)\
-                                                         .set_properties(**{'text-align': 'center'})\
-                                                         .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])\
-                                                         .hide(axis="columns", subset=["Es_Omision"])
-            
-            st.dataframe(styled_cron, use_container_width=True, hide_index=True)
+            # Usar st.table para garantizar look similar al Top 10 y centrado total
+            st.table(styled_cron)
             st.markdown('</div>', unsafe_allow_html=True)
             st.caption("Nota: Los meses resaltados en rojo corresponden a procesos que NO registran búsquedas previas.")
