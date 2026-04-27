@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Dashboard de Control DCC2", layout="wide")
 
-# Inicialización de estados globales para evitar errores de ejecución
+# Inicialización de estados globales
 if 'password_correct' not in st.session_state:
     st.session_state['password_correct'] = False
 if 'modulo_actual' not in st.session_state:
@@ -22,7 +22,6 @@ if 'usuario_logueado' not in st.session_state:
     st.session_state.usuario_logueado = ""
 
 def check_password():
-    """Valida las credenciales y gestiona el acceso."""
     def password_entered():
         user_input = st.session_state["username"].strip()
         pass_input = st.session_state["password"].strip()
@@ -52,70 +51,71 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA PROFESIONAL Y ALINEACIÓN INTELIGENTE (CSS)
+# 2. ESTÉTICA PROFESIONAL Y MARCO AJUSTADO (CSS)
 # =========================================================
 st.markdown("""
     <style>
-    /* 1. OCULTAR ELEMENTOS DE DESARROLLO Y MENÚS */
-    #MainMenu {visibility: hidden !important;}
-    footer {visibility: hidden !important;}
-    header {visibility: hidden !important;}
-    .stDeployButton {display:none !important;}
-    #stDecoration {display:none !important;}
-    [data-testid="stStatusWidget"] {display:none !important;}
-    .viewerBadge_container__1QSob {display:none !important;}
-    .stAppToolbar {display:none !important;}
-    iframe[title="manage-app"] {display:none !important;}
+    /* 1. OCULTAR ELEMENTOS DE DESARROLLO */
+    #MainMenu, footer, header, .stDeployButton, #stDecoration, 
+    [data-testid="stStatusWidget"], .viewerBadge_container__1QSob, 
+    .stAppToolbar, iframe[title="manage-app"] { visibility: hidden !important; display: none !important; }
     
     /* 2. DISEÑO DE PÁGINA */
     .main { background-color: #f8f9fa; }
-    h1, h2 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; text-align: center; }
+    h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; text-align: center; }
 
-    /* 3. MÉTRICAS COMPACTAS */
+    /* 3. MÉTRICAS */
     .stMetric { 
         background-color: #ffffff; padding: 10px; border-radius: 10px; 
         box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 4px solid #003366;
     }
 
-    /* 4. CONTENEDOR DE SCROLL VERTICAL */
+    /* 4. CONTENEDOR AJUSTADO AL TAMAÑO DE LA TABLA Y CENTRADO */
     .scroll-container {
-        max-height: 400px;
+        max-height: 450px;
         overflow-y: auto;
+        overflow-x: auto;
         border: 1px solid #dee2e6;
         border-radius: 4px;
         background-color: white;
         margin-bottom: 25px;
+        width: fit-content;      /* AJUSTA EL MARCO AL TAMAÑO DE LA TABLA */
+        max-width: 100%;         /* EVITA QUE SE SALGA DE LA PANTALLA */
+        margin-left: auto;       /* CENTRA EL CONTENEDOR */
+        margin-right: auto;      /* CENTRA EL CONTENEDOR */
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
 
-    /* 5. TABLA ESTILO EXCEL (ALINEACIÓN HÍBRIDA) */
+    /* 5. TABLA ESTILO EXCEL */
     .tabla-hibrida {
-        width: 100% !important;
+        width: auto !important;  /* NO FUERZA EL 100% PARA QUE EL MARCO SE AJUSTE */
         border-collapse: collapse !important;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
-        font-size: 13px !important; /* TAMAÑO DE LETRA SOLICITADO */
+        font-size: 13px !important;
     }
     .tabla-hibrida thead th {
         position: sticky;
         top: 0;
         background-color: #f1f3f5 !important;
         color: #003366 !important;
-        text-align: center !important; /* Encabezados siempre al centro */
-        padding: 6px 10px !important;
+        text-align: center !important;
+        padding: 8px 15px !important;
         z-index: 10;
         border: 1px solid #dee2e6 !important;
         font-weight: bold;
+        white-space: nowrap;
     }
     .tabla-hibrida tbody td {
         border: 1px solid #dee2e6 !important;
-        height: 20px !important;       /* ALTO DE FILA EXCEL */
-        padding: 2px 8px !important;
+        height: 22px !important; 
+        padding: 2px 10px !important;
         line-height: 1.1 !important;
         vertical-align: middle !important;
-        text-align: center !important;  /* Por defecto centro para estados */
+        text-align: center !important; /* Centro por defecto */
+        white-space: nowrap;
     }
     
-    /* ALINEACIÓN A LA IZQUIERDA PARA COLUMNAS DE TEXTO ESPECÍFICAS */
-    /* Target: No. Proceso, Sustanciador, Etapa */
+    /* ALINEACIÓN IZQUIERDA PARA TEXTO */
     .text-col {
         text-align: left !important;
         padding-left: 12px !important;
@@ -123,7 +123,7 @@ st.markdown("""
 
     .tabla-hibrida tbody tr:hover { background-color: #f1f5f9; }
 
-    /* Estilo botones navegación */
+    /* Botones Sidebar */
     .stButton>button { width: 100%; border-radius: 5px; text-align: left; }
     </style>
     """, unsafe_allow_html=True)
@@ -177,7 +177,7 @@ if not links:
     st.error("⚠️ Enlaces de datos no configurados.")
     st.stop()
 
-with st.spinner('Sincronizando información operativa...'):
+with st.spinner('Sincronizando información institucional...'):
     bases = {
         "FUIC": descargar_excel(links.get("FUIC"), "PARA ENVIAR"),
         "PROVIDENCIAS": descargar_excel(links.get("PROVIDENCIAS"), "PROVIDENCIAS"),
@@ -191,7 +191,6 @@ if any(isinstance(v, str) for v in bases.values()):
 
 df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
 
-# Normalización
 for df in [df_f, df_p, df_b, df_bus]:
     cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
     if cid: df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
@@ -211,7 +210,6 @@ col_f_not = buscar_columna_flexible(df_f, ["Fecha Not MP"])
 col_estado = buscar_columna_flexible(df_f, ["Estado Proceso en el Mes que se Rinde"])
 col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
 
-# Etapa dinámica
 cols_etapas = [c for c in df_f.columns if 'ETAPA' in c.upper()]
 def get_stage(row):
     for col in reversed(cols_etapas):
@@ -220,11 +218,9 @@ def get_stage(row):
     return "N/A"
 df_f['ETAPA_REAL'] = df_f.apply(get_stage, axis=1)
 
-# Cálculo de Alertas Lógicas
 for _, row in df_f.iterrows():
     pid = row.get('ID_LINK', '')
     if "ARCHIVADO" in str(row.get(col_estado, "")).upper(): continue
-
     al_mp, al_fe, al_me, al_bu = "OK", "OK", "OK", "OK"
     venc_fuerza, fb, registro_afectado = pd.NaT, pd.NaT, ""
 
@@ -285,7 +281,7 @@ for _, row in df_f.iterrows():
 df_alertas = pd.DataFrame(alertas)
 
 # =========================================================
-# 4. NAVEGACIÓN Y FILTROS (BARRA LATERAL)
+# 4. NAVEGACIÓN Y FILTROS
 # =========================================================
 with st.sidebar:
     st.markdown(f"### 👤 {st.session_state.usuario_logueado}")
@@ -307,14 +303,12 @@ with st.sidebar:
         st.rerun()
 
 # =========================================================
-# 5. RENDERIZADO DE MÓDULOS (DISEÑO HÍBRIDO)
+# 5. RENDERIZADO (MARCO AJUSTADO Y CENTRADO)
 # =========================================================
 st.markdown("<h1>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
-
 df_disp = df_alertas.copy()
 if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
 
-# --- MÓDULO 1: INICIO ---
 if st.session_state.modulo_actual == "🏠 Inicio":
     st.markdown("### Resumen Ejecutivo")
     c1, c2, c3, c4 = st.columns(4)
@@ -323,25 +317,19 @@ if st.session_state.modulo_actual == "🏠 Inicio":
     with c3: st.metric("Búsquedas Vencidas", len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]))
     with c4: st.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
     st.write("---")
-    st.info("Utilice el menú lateral para acceder a los detalles de cada alerta.")
+    st.info("Utilice el menú lateral para acceder a los detalles.")
 
-# --- MÓDULO 2: INVENTARIO (ALINEACIÓN IZQUIERDA/CENTRO) ---
 elif st.session_state.modulo_actual == "📋 Inventario":
     st.markdown("### 📋 Inventario de Alertas Activas")
     cols_v = ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
     if not df_disp.empty:
-        # Lógica de alineación: Inyectar clases CSS en el HTML de Pandas
         styled_df = df_disp[cols_v].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
         html_table = styled_df.to_html(classes='tabla-hibrida', index=False, escape=False)
-        
-        # Aplicar alineación izquierda a las primeras 3 columnas (Texto)
         html_table = html_table.replace('<td>', '<td class="text-col">', 3 * len(df_disp))
-        
         st.markdown(f'<div class="scroll-container">{html_table}</div>', unsafe_allow_html=True)
     else:
-        st.success("✅ No hay alertas pendientes.")
+        st.success("✅ Todo al día.")
 
-# --- MÓDULO 3: TOP 10 ---
 elif st.session_state.modulo_actual == "🚨 Top 10":
     st.markdown("### 🚨 Prioridad: Riesgo Fuerza Ejecutoria")
     df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
@@ -351,13 +339,11 @@ elif st.session_state.modulo_actual == "🚨 Top 10":
         df_p_fe['Días'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else "PRESCRITO")
         df_p_fe['Vencimiento'], df_p_fe['Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
         html_t10 = df_p_fe[["No. Proceso", "Sustanciador", "Ejecutoria", "Vencimiento", "Días"]].to_html(classes='tabla-hibrida', index=False)
-        # Alineación izquierda para Proceso y Sustanciador
         html_t10 = html_t10.replace('<td>', '<td class="text-col">', 2 * len(df_p_fe))
-        st.markdown(html_t10, unsafe_allow_html=True)
+        st.markdown(f'<div class="scroll-container">{html_t10}</div>', unsafe_allow_html=True)
     else:
-        st.success("✅ Sin riesgos inminentes.")
+        st.success("✅ Sin riesgos.")
 
-# --- MÓDULO 4: CRONOGRAMA ---
 elif st.session_state.modulo_actual == "🔎 Cronograma":
     st.markdown("### 🔎 Cronograma de Gestión: Búsqueda de Bienes")
     df_act = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
