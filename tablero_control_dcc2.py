@@ -13,19 +13,21 @@ from datetime import datetime, timedelta
 # =========================================================
 st.set_page_config(page_title="Dashboard de Control DCC2", layout="wide")
 
-# Inicialización de estados globales
+# Inicialización de estados globales para evitar errores de ejecución
 if 'password_correct' not in st.session_state:
     st.session_state['password_correct'] = False
-if 'filtro_alerta' not in st.session_state:
-    st.session_state.filtro_alerta = "TODAS"
 if 'modulo_actual' not in st.session_state:
     st.session_state.modulo_actual = "🏠 Inicio"
+if 'usuario_logueado' not in st.session_state:
+    st.session_state.usuario_logueado = ""
 
 def check_password():
+    """Valida las credenciales y gestiona el acceso."""
     def password_entered():
         user_input = st.session_state["username"].strip()
         pass_input = st.session_state["password"].strip()
         creds = st.secrets.get("credentials", {})
+        
         if user_input in creds and str(pass_input) == str(creds[user_input]):
             st.session_state["password_correct"] = True
             st.session_state["usuario_logueado"] = user_input
@@ -50,11 +52,11 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA WEB Y BLOQUEO DE INTERFAZ (CSS DEFINITIVO)
+# 2. ESTÉTICA PROFESIONAL Y ALINEACIÓN INTELIGENTE (CSS)
 # =========================================================
 st.markdown("""
     <style>
-    /* BLOQUEO AGRESIVO DE ELEMENTOS DE STREAMLIT */
+    /* 1. OCULTAR ELEMENTOS DE DESARROLLO Y MENÚS */
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     header {visibility: hidden !important;}
@@ -63,68 +65,66 @@ st.markdown("""
     [data-testid="stStatusWidget"] {display:none !important;}
     .viewerBadge_container__1QSob {display:none !important;}
     .stAppToolbar {display:none !important;}
-    div[data-testid="stToolbar"] {display: none !important;}
     iframe[title="manage-app"] {display:none !important;}
-    div.stActionButton {display: none !important;}
     
-    /* Estilos generales de la página */
+    /* 2. DISEÑO DE PÁGINA */
     .main { background-color: #f8f9fa; }
-    h1, h2 { color: #003366 !important; font-family: 'Segoe UI', sans-serif; text-align: center; margin-bottom: 20px; }
+    h1, h2 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; text-align: center; }
 
-    /* Métricas Compactas */
+    /* 3. MÉTRICAS COMPACTAS */
     .stMetric { 
         background-color: #ffffff; padding: 10px; border-radius: 10px; 
         box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 4px solid #003366;
     }
 
-    /* CONTENEDOR DE SCROLL PARA TABLAS */
-    .table-scroll-box {
+    /* 4. CONTENEDOR DE SCROLL VERTICAL */
+    .scroll-container {
         max-height: 400px;
         overflow-y: auto;
-        overflow-x: auto;
         border: 1px solid #dee2e6;
-        border-radius: 6px;
+        border-radius: 4px;
         background-color: white;
-        margin-bottom: 20px;
-        width: 100%;
+        margin-bottom: 25px;
     }
 
-    /* TABLA ESTILO EXCEL UNIFICADA (CENTRADO Y ALTO 20PX) */
-    .excel-table {
+    /* 5. TABLA ESTILO EXCEL (ALINEACIÓN HÍBRIDA) */
+    .tabla-hibrida {
         width: 100% !important;
         border-collapse: collapse !important;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
-        font-size: 13px !important;
+        font-size: 13px !important; /* TAMAÑO DE LETRA SOLICITADO */
     }
-    .excel-table thead th {
+    .tabla-hibrida thead th {
         position: sticky;
         top: 0;
         background-color: #f1f3f5 !important;
         color: #003366 !important;
-        text-align: center !important;
-        padding: 5px 10px !important;
+        text-align: center !important; /* Encabezados siempre al centro */
+        padding: 6px 10px !important;
         z-index: 10;
         border: 1px solid #dee2e6 !important;
         font-weight: bold;
     }
-    .excel-table tbody td {
-        text-align: center !important;
-        padding: 2px 8px !important; 
+    .tabla-hibrida tbody td {
         border: 1px solid #dee2e6 !important;
-        height: 20px !important;
+        height: 20px !important;       /* ALTO DE FILA EXCEL */
+        padding: 2px 8px !important;
         line-height: 1.1 !important;
         vertical-align: middle !important;
-        color: #333;
+        text-align: center !important;  /* Por defecto centro para estados */
     }
-    .excel-table tbody tr:hover { background-color: #f1f5f9; }
+    
+    /* ALINEACIÓN A LA IZQUIERDA PARA COLUMNAS DE TEXTO ESPECÍFICAS */
+    /* Target: No. Proceso, Sustanciador, Etapa */
+    .text-col {
+        text-align: left !important;
+        padding-left: 12px !important;
+    }
 
-    /* Estilo para los botones de la barra lateral */
-    .stButton>button {
-        width: 100%;
-        border-radius: 5px;
-        text-align: left;
-        padding-left: 10px;
-    }
+    .tabla-hibrida tbody tr:hover { background-color: #f1f5f9; }
+
+    /* Estilo botones navegación */
+    .stButton>button { width: 100%; border-radius: 5px; text-align: left; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -170,15 +170,14 @@ def descargar_excel(url, hoja):
         return str(e)
 
 # =========================================================
-# 3. CARGA Y PROCESAMIENTO DE DATOS
+# 3. PROCESAMIENTO DE DATOS
 # =========================================================
 links = st.secrets.get("links_onedrive", {})
-
 if not links:
     st.error("⚠️ Enlaces de datos no configurados.")
     st.stop()
 
-with st.spinner('Sincronizando información institucional...'):
+with st.spinner('Sincronizando información operativa...'):
     bases = {
         "FUIC": descargar_excel(links.get("FUIC"), "PARA ENVIAR"),
         "PROVIDENCIAS": descargar_excel(links.get("PROVIDENCIAS"), "PROVIDENCIAS"),
@@ -187,12 +186,12 @@ with st.spinner('Sincronizando información institucional...'):
     }
 
 if any(isinstance(v, str) for v in bases.values()):
-    st.error("Error al conectar con las bases de datos en la nube.")
+    st.error("Error al conectar con las bases de datos en OneDrive.")
     st.stop()
 
 df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
 
-# Normalización de IDs y Fechas
+# Normalización
 for df in [df_f, df_p, df_b, df_bus]:
     cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
     if cid: df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
@@ -221,7 +220,7 @@ def get_stage(row):
     return "N/A"
 df_f['ETAPA_REAL'] = df_f.apply(get_stage, axis=1)
 
-# Cálculo de Alertas
+# Cálculo de Alertas Lógicas
 for _, row in df_f.iterrows():
     pid = row.get('ID_LINK', '')
     if "ARCHIVADO" in str(row.get(col_estado, "")).upper(): continue
@@ -229,7 +228,6 @@ for _, row in df_f.iterrows():
     al_mp, al_fe, al_me, al_bu = "OK", "OK", "OK", "OK"
     venc_fuerza, fb, registro_afectado = pd.NaT, pd.NaT, ""
 
-    # 1. Mandamiento
     provs = df_p[df_p['ID_LINK'] == pid]
     cnp, cfp = buscar_columna_flexible(df_p, ["Nombre Providencia"]), buscar_columna_flexible(df_p, ["Fecha Providencia"])
     if cnp and cfp:
@@ -239,14 +237,12 @@ for _, row in df_f.iterrows():
             if (hoy - fa).days >= 90: al_mp = "VENCIDO"
             elif (hoy - fa).days >= 60: al_mp = "CRÍTICO"
 
-    # 2. Fuerza Ejecutoria
     fej = row.get(col_f_ejec)
     if pd.notna(fej) and pd.isna(row.get(col_f_not)):
         venc_fuerza = fej + timedelta(days=1826)
         if (hoy - fej).days / 365.25 >= 5: al_fe = "PERDIDA"
         elif (hoy - fej).days / 365.25 >= 4: al_fe = "RIESGO ALTO"
 
-    # 3. Medidas
     b_pr = df_b[df_b['ID_LINK'] == pid]
     ctb, cfe_reg = buscar_columna_flexible(df_b, ["Tipo Bien Identificado"]), buscar_columna_flexible(df_b, ["Fecha Práctica, Inscripción o Registro Embargo"])
     if ctb and cfe_reg:
@@ -269,7 +265,6 @@ for _, row in df_f.iterrows():
             elif (fv - hoy).days / 30 <= 6: al_me = "RENOVAR YA"
             if al_me != "OK": registro_afectado = ", ".join(sorted(list(set(registros_alerta))))
 
-    # 4. Búsqueda
     l_date_row = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
     fb = l_date_row.iloc[0] if not l_date_row.empty else pd.NaT
     if pd.isna(fb): al_bu = "PENDIENTE"
@@ -290,14 +285,12 @@ for _, row in df_f.iterrows():
 df_alertas = pd.DataFrame(alertas)
 
 # =========================================================
-# 4. NAVEGACIÓN Y BARRA LATERAL
+# 4. NAVEGACIÓN Y FILTROS (BARRA LATERAL)
 # =========================================================
 with st.sidebar:
-    st.markdown(f"### 👤 Usuario: {st.session_state.usuario_logueado}")
+    st.markdown(f"### 👤 {st.session_state.usuario_logueado}")
     st.write("---")
-    st.markdown("### 🧭 Menú de Navegación")
-    
-    # Sistema de navegación por botones
+    st.markdown("### 🧭 Navegación")
     if st.button("🏠 Inicio"): st.session_state.modulo_actual = "🏠 Inicio"
     if st.button("📋 Inventario de Alertas"): st.session_state.modulo_actual = "📋 Inventario"
     if st.button("🚨 Riesgos de Prescripción"): st.session_state.modulo_actual = "🚨 Top 10"
@@ -306,11 +299,7 @@ with st.sidebar:
     st.write("---")
     st.markdown("### 🔍 Filtro Maestro")
     todos_sust = sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else []
-    sel_sust = st.multiselect("Filtrar por Sustanciador:", todos_sust)
-    
-    if st.button("Limpiar Filtros"):
-        st.session_state.filtro_alerta = "TODAS"
-        st.rerun()
+    sel_sust = st.multiselect("Funcionario:", todos_sust)
     
     st.write("---")
     if st.button("🚪 Cerrar Sesión"):
@@ -318,95 +307,77 @@ with st.sidebar:
         st.rerun()
 
 # =========================================================
-# 5. MÓDULOS DE LA APLICACIÓN
+# 5. RENDERIZADO DE MÓDULOS (DISEÑO HÍBRIDO)
 # =========================================================
 st.markdown("<h1>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
 
-# Lógica de filtrado maestro aplicada a la visualización actual
 df_disp = df_alertas.copy()
 if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
 
-# --- MÓDULO 1: INICIO (KPIs) ---
+# --- MÓDULO 1: INICIO ---
 if st.session_state.modulo_actual == "🏠 Inicio":
-    st.markdown("### Resumen Ejecutivo de Alertas")
+    st.markdown("### Resumen Ejecutivo")
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        cnt = len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"])
-        st.metric("Riesgo Fuerza", cnt)
-    with c2:
-        cnt = len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"])
-        st.metric("Medidas x Renovar", cnt)
-    with c3:
-        cnt = len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])])
-        st.metric("Búsquedas Vencidas", cnt)
-    with c4:
-        cnt = len(df_alertas[df_alertas['Mandamiento'] != "OK"])
-        st.metric("Términos MP", cnt)
-    
+    with c1: st.metric("Riesgo Fuerza", len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"]))
+    with c2: st.metric("Medidas x Renovar", len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"]))
+    with c3: st.metric("Búsquedas Vencidas", len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]))
+    with c4: st.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
     st.write("---")
-    st.info("Utilice el menú de la izquierda para navegar entre los módulos detallados o filtrar por su nombre.")
+    st.info("Utilice el menú lateral para acceder a los detalles de cada alerta.")
 
-# --- MÓDULO 2: INVENTARIO DE ALERTAS ---
+# --- MÓDULO 2: INVENTARIO (ALINEACIÓN IZQUIERDA/CENTRO) ---
 elif st.session_state.modulo_actual == "📋 Inventario":
-    st.markdown(f"### 📋 Inventario de Alertas Activas")
-    cols_b = ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
-    
+    st.markdown("### 📋 Inventario de Alertas Activas")
+    cols_v = ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
     if not df_disp.empty:
-        html_main = df_disp[cols_b].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
-                                         .to_html(classes='excel-table', index=False, escape=False)
-        st.markdown(f'<div class="table-scroll-box">{html_main}</div>', unsafe_allow_html=True)
+        # Lógica de alineación: Inyectar clases CSS en el HTML de Pandas
+        styled_df = df_disp[cols_v].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
+        html_table = styled_df.to_html(classes='tabla-hibrida', index=False, escape=False)
+        
+        # Aplicar alineación izquierda a las primeras 3 columnas (Texto)
+        html_table = html_table.replace('<td>', '<td class="text-col">', 3 * len(df_disp))
+        
+        st.markdown(f'<div class="scroll-container">{html_table}</div>', unsafe_allow_html=True)
     else:
-        st.success("✅ No hay alertas pendientes para los filtros seleccionados.")
+        st.success("✅ No hay alertas pendientes.")
 
-# --- MÓDULO 3: TOP 10 RIESGOS ---
+# --- MÓDULO 3: TOP 10 ---
 elif st.session_state.modulo_actual == "🚨 Top 10":
     st.markdown("### 🚨 Prioridad: Riesgo Fuerza Ejecutoria")
     df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
     if sel_sust: df_p_fe = df_p_fe[df_p_fe['Sustanciador'].isin(sel_sust)]
     df_p_fe = df_p_fe.head(10).copy()
-
     if not df_p_fe.empty:
-        df_p_fe['Días Restantes'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else f"PRESCRITO")
+        df_p_fe['Días'] = df_p_fe['Vencimiento_Fuerza'].apply(lambda x: f"{(x-hoy).days} d" if (x-hoy).days >=0 else "PRESCRITO")
         df_p_fe['Vencimiento'], df_p_fe['Ejecutoria'] = df_p_fe['Vencimiento_Fuerza'].dt.strftime('%d/%m/%Y'), df_p_fe['Fecha_Ejecutoria'].dt.strftime('%d/%m/%Y')
-        t10_cols = ["No. Proceso", "Sustanciador", "Ejecutoria", "Vencimiento", "Días Restantes"]
-        html_t10 = df_p_fe[t10_cols].to_html(classes='excel-table', index=False)
+        html_t10 = df_p_fe[["No. Proceso", "Sustanciador", "Ejecutoria", "Vencimiento", "Días"]].to_html(classes='tabla-hibrida', index=False)
+        # Alineación izquierda para Proceso y Sustanciador
+        html_t10 = html_t10.replace('<td>', '<td class="text-col">', 2 * len(df_p_fe))
         st.markdown(html_t10, unsafe_allow_html=True)
     else:
-        st.success("✅ Sin riesgos de fuerza inminentes.")
+        st.success("✅ Sin riesgos inminentes.")
 
-# --- MÓDULO 4: CRONOGRAMA BÚSQUEDA ---
+# --- MÓDULO 4: CRONOGRAMA ---
 elif st.session_state.modulo_actual == "🔎 Cronograma":
     st.markdown("### 🔎 Cronograma de Gestión: Búsqueda de Bienes")
-    df_activos = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
+    df_act = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
     cron_list = []
-    for _, r in df_activos.iterrows():
-        pid = r['ID_LINK']
-        l_m = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
-        u_f = l_m.iloc[0] if not l_m.empty else pd.NaT
+    for _, r in df_act.iterrows():
+        u_f = df_bus_latest[df_bus_latest['ID_LINK'] == r['ID_LINK']]['Ultima_Busq_Real'].iloc[0] if not df_bus_latest[df_bus_latest['ID_LINK'] == r['ID_LINK']].empty else pd.NaT
         p_f, es_o = (hoy, True) if pd.isna(u_f) else (u_f + timedelta(days=120), False)
-        cron_list.append({
-            "No. Proceso": r.get(buscar_columna_flexible(df_f, ["No. Proceso", "PROCESO"])), 
-            "Sustanciador": r.get(col_sust, "N/A"), "Fecha_F": p_f, "Es_Omision": es_o
-        })
-    
+        cron_list.append({"No. Proceso": r.get(buscar_columna_flexible(df_f, ["No. Proceso", "PROCESO"])), "Sustanciador": r.get(col_sust, "N/A"), "Fecha_F": p_f, "Es_Omision": es_o})
     df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha_F")
     if sel_sust: df_cron = df_cron[df_cron['Sustanciador'].isin(sel_sust)]
-    
     if not df_cron.empty:
         mask_o = df_cron["Es_Omision"].values
-        df_cr_view = df_cron[["No. Proceso", "Sustanciador"]].copy()
-        df_cr_view['Mes Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
-        df_cr_view = df_cr_view.reset_index(drop=True)
-
-        def style_red_month(df):
+        df_cv = df_cron[["No. Proceso", "Sustanciador"]].copy()
+        df_cv['Mes Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
+        def style_red(df):
             stls = pd.DataFrame('', index=df.index, columns=df.columns)
-            for i, is_new in enumerate(mask_o):
-                if i < len(stls) and is_new:
-                    stls.iloc[i, stls.columns.get_loc("Mes Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+            for i, o in enumerate(mask_o):
+                if o: stls.iloc[i, 2] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
             return stls
-
-        html_cron = df_cr_view.style.apply(style_red_month, axis=None).to_html(classes='excel-table', index=False)
-        st.markdown(f'<div class="table-scroll-box">{html_cron}</div>', unsafe_allow_html=True)
-        st.caption("Nota: Los meses resaltados en rojo corresponden a procesos sin historial de búsqueda.")
-    else:
-        st.info("🔎 No hay gestiones programadas.")
+        html_cron = df_cv.reset_index(drop=True).style.apply(style_red, axis=None).to_html(classes='tabla-hibrida', index=False)
+        html_cron = html_cron.replace('<td>', '<td class="text-col">', 2 * len(df_cv))
+        st.markdown(f'<div class="scroll-container">{html_cron}</div>', unsafe_allow_html=True)
+        st.caption("Nota: Meses en rojo indican omisión de búsquedas previas.")
