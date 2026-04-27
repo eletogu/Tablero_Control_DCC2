@@ -50,16 +50,21 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA EXCEL COMPACTA Y OCULTAMIENTO DE MENÚS (CSS)
+# 2. ESTÉTICA EXCEL Y BLOQUEO DE INTERFAZ DE DESARROLLO
 # =========================================================
 st.markdown("""
     <style>
-    /* OCULTAR ELEMENTOS DE DESARROLLO DE STREAMLIT */
+    /* BLOQUEO TOTAL DE ELEMENTOS DE GESTIÓN Y "MANAGE APP" */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    .stDeployButton {display:none;}
     header {visibility: hidden;}
+    .stDeployButton {display:none;}
     #stDecoration {display:none;}
+    [data-testid="stStatusWidget"] {display:none;}
+    .viewerBadge_container__1QSob {display:none !important;}
+    .stAppToolbar {display:none !important;}
+    iframe[title="manage-app"] {display:none !important;}
+    div[data-testid="stToolbar"] {display: none !important;}
     
     /* Estilos generales */
     .main { background-color: #f8f9fa; }
@@ -325,7 +330,7 @@ else:
         st.subheader(titulo)
         
         if not df_disp.empty:
-            # RENDERIZADO HTML CON CENTRADO FORZADO Y SIN ÍNDICE
+            # RENDERIZADO HTML: SIN ÍNDICE Y CENTRADO
             html_main = df_disp[cols_b].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])\
                                              .to_html(classes='excel-table', index=False, escape=False)
             st.markdown(f'<div class="table-scroll-container">{html_main}</div>', unsafe_allow_html=True)
@@ -349,7 +354,7 @@ else:
             html_t10 = df_p_fe[t10_cols].to_html(classes='excel-table', index=False)
             st.markdown(html_t10, unsafe_allow_html=True)
         else:
-            st.info("✅ Sin riesgos de fuerza para el funcionario.")
+            st.info("✅ Sin riesgos inminentes detectados.")
 
         st.write("---")
         st.subheader("🔎 Cronograma de Gestión: Seguimiento de Búsqueda de Bienes")
@@ -378,7 +383,7 @@ else:
             def style_red_month_excel(df):
                 stls = pd.DataFrame('', index=df.index, columns=df.columns)
                 for i, is_new in enumerate(mask_o):
-                    if is_new:
+                    if i < len(stls) and is_new:
                         stls.iloc[i, stls.columns.get_loc("Fecha Próxima BB")] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
                 return stls
 
