@@ -3,4 +3,3 @@ pandas
 openpyxl
 requests
 numpy
-streamlit-authenticator
