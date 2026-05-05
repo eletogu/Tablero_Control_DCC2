@@ -366,7 +366,6 @@ with st.sidebar:
 # =========================================================
 # 5. RENDERIZADO DE MÓDULOS
 # =========================================================
-# NOMBRE ACTUALIZADO SEGÚN SOLICITUD
 st.markdown("<h1>📊 TABLERO DE CONTROL - DCC2</h1>", unsafe_allow_html=True)
 
 # --- MÓDULO: REPARTO (LÓGICA ELKINL.TOVAR CON RESERVA) ---
@@ -440,13 +439,14 @@ if st.session_state.modulo_actual == "⚖️ Reparto":
 elif st.session_state.modulo_actual == "🏠 Inicio":
     st.markdown("### Resumen Operativo de Alertas")
     c1, c2, c3, c4 = st.columns(4)
-    with c1: st.metric("Riesgo Fuerza", len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"]))
+    # ACTUALIZACIÓN DE TEXTOS EN MÉTRICAS
+    with c1: st.metric("En Riesgo de Perdida Ejecutoria", len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"]))
     with c2: st.metric("Medidas x Renovar", len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"]))
-    with c3: st.metric("Búsquedas Vencidas", len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]))
+    with c3: st.metric("Búsquedas de Bienes Vencidas", len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]))
     with c4: st.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
     st.info("Utilice el menú lateral para gestionar el reparto o visualizar el inventario de alertas.")
 
-# --- MÓDULO: INVENTARIO (ALINEACIÓN IZQUIERDA/CENTRO) ---
+# --- MÓDULO: INVENTARIO ---
 elif st.session_state.modulo_actual == "📋 Inventario":
     st.markdown("### 📋 Inventario Detallado de Alertas")
     df_disp = df_alertas.copy()
