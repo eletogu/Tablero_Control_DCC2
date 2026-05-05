@@ -58,7 +58,7 @@ if not check_password():
 # =========================================================
 st.markdown("""
     <style>
-    /* OCULTAR ELEMENTOS DE DESARROLLO */
+    /* OCULTAR ELEMENTOS DE DESARROLLO Y MENÚS */
     #MainMenu, footer, header, .stDeployButton, #stDecoration, 
     [data-testid="stStatusWidget"], .viewerBadge_container__1QSob, 
     .stAppToolbar, iframe[title="manage-app"] { visibility: hidden !important; display: none !important; }
@@ -71,7 +71,7 @@ st.markdown("""
         box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 4px solid #003366;
     }
 
-    /* CONTENEDOR AJUSTADO Y CENTRADO */
+    /* CONTENEDOR AJUSTADO AL TAMAÑO DE LA TABLA Y CENTRADO */
     .scroll-container {
         max-height: 450px;
         overflow-y: auto;
@@ -103,6 +103,7 @@ st.markdown("""
         z-index: 10;
         border: 1px solid #dee2e6 !important;
         font-weight: bold;
+        white-space: nowrap;
     }
     .tabla-hibrida tbody td {
         border: 1px solid #dee2e6 !important;
@@ -117,10 +118,9 @@ st.markdown("""
     .text-col { text-align: left !important; padding-left: 12px !important; }
     .tabla-hibrida tbody tr:hover { background-color: #f1f5f9; }
 
-    /* BOTONES DE NAVEGACIÓN */
+    /* BOTONES DE NAVEGACIÓN Y ACCIÓN */
     .stButton>button { width: 100%; border-radius: 5px; text-align: left; }
     
-    /* BOTONES DE ACCIÓN (REPARTO) */
     .btn-reparto button {
         text-align: center !important;
         font-weight: bold !important;
@@ -129,12 +129,19 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- CONFIGURACIÓN DE REPARTO ---
+# --- CONFIGURACIÓN DE REPARTO (ORDEN ACTUALIZADO) ---
 LISTA_REPARTO = [
-    "Felipe Carlos Barraza Díaz", "Félix Roberto Camargo Caballero", "Frey Carlos Salamanca Ramírez",
-    "Gerardo Cepeda Rubiano", "José Luis Gómez Escobar", "Katy Castillo Rojas",
-    "Manuel Alejandro Cuentas Sardoth", "Maria Fernanda Molina Díaz Granados",
-    "Marleny Ibarra Núñez", "Tito Bartolomé Morales Barrera", "Marco Antonio Torres Rodríguez"
+    "Felipe Carlos Barraza Díaz", 
+    "Félix Roberto Camargo Caballero", 
+    "Frey Carlos Salamanca Ramírez",
+    "Gerardo Cepeda Rubiano", 
+    "José Luis Gómez Escobar", 
+    "Katy Castillo Rojas",
+    "Manuel Alejandro Cuentas Sardoth", 
+    "Maria Fernanda Molina Díaz Granados",
+    "Marleny Ibarra Núñez", 
+    "Marco Antonio Torres Rodríguez", # Marco ahora está encima de Tito
+    "Tito Bartolomé Morales Barrera"
 ]
 
 MESES_ES = {
@@ -320,20 +327,17 @@ st.markdown("<h1>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
 df_disp = df_alertas.copy()
 if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
 
-# --- MÓDULO: REPARTO (NUEVO) ---
+# --- MÓDULO: REPARTO ---
 if st.session_state.modulo_actual == "⚖️ Reparto":
     st.subheader("⚖️ Sistema de Reparto y Asignación de Procesos")
     
-    # Identificar el funcionario actual
     index_actual = st.session_state.reparto_index
     func_actual = LISTA_REPARTO[index_actual]
     
-    # Tarjeta de Turno Actual
     col_t1, col_t2 = st.columns([2, 1])
     with col_t1:
         st.info(f"**PRÓXIMA ASIGNACIÓN CORRESPONDE A:** \n\n ### {func_actual}")
     
-    # Botones de Acción (Solo para Admin)
     with col_t2:
         if st.session_state.usuario_logueado == "admin":
             st.markdown('<div class="btn-reparto">', unsafe_allow_html=True)
@@ -345,11 +349,10 @@ if st.session_state.modulo_actual == "⚖️ Reparto":
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.warning("⚠️ Controles de asignación reservados para el Administrador.")
+            st.warning("⚠️ Controles reservados para el Administrador.")
 
     st.write("---")
     
-    # Tabla de Listado de Reparto
     data_reparto = []
     for i, nombre in enumerate(LISTA_REPARTO):
         estado = "SIGUIENTE EN TURNO" if i == index_actual else "EN ESPERA"
@@ -357,10 +360,10 @@ if st.session_state.modulo_actual == "⚖️ Reparto":
     
     df_rep_view = pd.DataFrame(data_reparto)
     html_rep = df_rep_view.style.map(color_semaforo_html, subset=["Estado de Reparto"]).to_html(classes='tabla-hibrida', index=False)
-    html_rep = html_rep.replace('<td>', '<td class="text-col">', len(LISTA_REPARTO)) # Alinea 'Funcionario' a la izq
+    html_rep = html_rep.replace('<td>', '<td class="text-col">', len(LISTA_REPARTO))
     
     st.markdown(f'<div class="scroll-container">{html_rep}</div>', unsafe_allow_html=True)
-    st.caption("Nota: El orden de reparto es cíclico y se actualiza manualmente tras cada asignación efectiva.")
+    st.caption("Nota: El orden de reparto es cíclico (Marco Antonio precede a Tito Bartolomé).")
 
 # --- MÓDULO: INICIO ---
 elif st.session_state.modulo_actual == "🏠 Inicio":
@@ -371,7 +374,7 @@ elif st.session_state.modulo_actual == "🏠 Inicio":
     with c3: st.metric("Búsquedas Vencidas", len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]))
     with c4: st.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
     st.write("---")
-    st.info("Navegue por los módulos laterales para gestionar el reparto o ver el inventario detallado.")
+    st.info("Navegue por los módulos laterales para gestionar la carga operativa.")
 
 # --- MÓDULO: INVENTARIO ---
 elif st.session_state.modulo_actual == "📋 Inventario":
