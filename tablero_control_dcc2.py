@@ -20,9 +20,27 @@ if 'modulo_actual' not in st.session_state:
     st.session_state.modulo_actual = "🏠 Inicio"
 if 'usuario_logueado' not in st.session_state:
     st.session_state.usuario_logueado = ""
-# Estado del reparto (Índice del 0 al 10 para los 11 funcionarios)
-if 'reparto_index' not in st.session_state:
-    st.session_state.reparto_index = 0
+# Índice del titular del turno (quién debería recibir el proceso)
+if 'reparto_base_index' not in st.session_state:
+    st.session_state.reparto_base_index = 0
+# Diccionario de novedades (True = Activo, False = En Novedad)
+if 'estados_funcionarios' not in st.session_state:
+    st.session_state.estados_funcionarios = {
+        "Felipe Carlos Barraza Díaz": True,
+        "Félix Roberto Camargo Caballero": True,
+        "Frey Carlos Salamanca Ramírez": True,
+        "Gerardo Cepeda Rubiano": True,
+        "José Luis Gómez Escobar": True,
+        "Katy Castillo Rojas": True,
+        "Manuel Alejandro Cuentas Sardoth": True,
+        "Maria Fernanda Molina Díaz Granados": True,
+        "Marleny Ibarra Núñez": True,
+        "Marco Antonio Torres Rodríguez": True,
+        "Tito Bartolomé Morales Barrera": True
+    }
+# Offset para cuando hay gente en novedad y el turno debe saltar al siguiente disponible
+if 'reparto_sub_offset' not in st.session_state:
+    st.session_state.reparto_sub_offset = 0
 
 def check_password():
     def password_entered():
@@ -54,11 +72,10 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA PROFESIONAL Y BLOQUEO DE INTERFAZ (CSS)
+# 2. ESTÉTICA Y BLOQUEO (CSS)
 # =========================================================
 st.markdown("""
     <style>
-    /* OCULTAR ELEMENTOS DE DESARROLLO Y MENÚS */
     #MainMenu, footer, header, .stDeployButton, #stDecoration, 
     [data-testid="stStatusWidget"], .viewerBadge_container__1QSob, 
     .stAppToolbar, iframe[title="manage-app"] { visibility: hidden !important; display: none !important; }
@@ -71,9 +88,8 @@ st.markdown("""
         box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 4px solid #003366;
     }
 
-    /* CONTENEDOR AJUSTADO AL TAMAÑO DE LA TABLA Y CENTRADO */
     .scroll-container {
-        max-height: 450px;
+        max-height: 500px;
         overflow-y: auto;
         border: 1px solid #dee2e6;
         border-radius: 4px;
@@ -86,11 +102,10 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
 
-    /* TABLA HÍBRIDA: TEXTO IZQUIERDA, ESTADOS CENTRO */
     .tabla-hibrida {
         width: auto !important;
         border-collapse: collapse !important;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+        font-family: 'Segoe UI', sans-serif !important;
         font-size: 13px !important;
     }
     .tabla-hibrida thead th {
@@ -103,45 +118,49 @@ st.markdown("""
         z-index: 10;
         border: 1px solid #dee2e6 !important;
         font-weight: bold;
-        white-space: nowrap;
     }
     .tabla-hibrida tbody td {
         border: 1px solid #dee2e6 !important;
-        height: 22px !important; 
-        padding: 2px 10px !important;
+        height: 24px !important; 
+        padding: 2px 12px !important;
         line-height: 1.1 !important;
         vertical-align: middle !important;
         text-align: center !important;
         white-space: nowrap;
     }
     
-    .text-col { text-align: left !important; padding-left: 12px !important; }
+    .text-col { text-align: left !important; padding-left: 15px !important; }
     .tabla-hibrida tbody tr:hover { background-color: #f1f5f9; }
 
-    /* BOTONES DE NAVEGACIÓN Y ACCIÓN */
     .stButton>button { width: 100%; border-radius: 5px; text-align: left; }
     
-    .btn-reparto button {
-        text-align: center !important;
-        font-weight: bold !important;
-        height: 45px !important;
+    /* Estilos especiales para el módulo de reparto */
+    .card-turno {
+        background-color: #ffffff;
+        border-radius: 10px;
+        padding: 20px;
+        border-left: 10px solid #28a745;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .card-alerta-novedad {
+        background-color: #fff3cd;
+        border-left: 10px solid #ffc107;
+        padding: 15px;
+        border-radius: 10px;
+        color: #856404;
+        margin-bottom: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CONFIGURACIÓN DE REPARTO (ORDEN ACTUALIZADO) ---
-LISTA_REPARTO = [
-    "Felipe Carlos Barraza Díaz", 
-    "Félix Roberto Camargo Caballero", 
-    "Frey Carlos Salamanca Ramírez",
-    "Gerardo Cepeda Rubiano", 
-    "José Luis Gómez Escobar", 
-    "Katy Castillo Rojas",
-    "Manuel Alejandro Cuentas Sardoth", 
-    "Maria Fernanda Molina Díaz Granados",
-    "Marleny Ibarra Núñez", 
-    "Marco Antonio Torres Rodríguez", # Marco ahora está encima de Tito
-    "Tito Bartolomé Morales Barrera"
+# --- CONFIGURACIÓN DE LISTA ---
+ORDEN_NOMBRES = [
+    "Felipe Carlos Barraza Díaz", "Félix Roberto Camargo Caballero", "Frey Carlos Salamanca Ramírez",
+    "Gerardo Cepeda Rubiano", "José Luis Gómez Escobar", "Katy Castillo Rojas",
+    "Manuel Alejandro Cuentas Sardoth", "Maria Fernanda Molina Díaz Granados",
+    "Marleny Ibarra Núñez", "Marco Antonio Torres Rodríguez", "Tito Bartolomé Morales Barrera"
 ]
 
 MESES_ES = {
@@ -167,11 +186,11 @@ def buscar_columna_flexible(df, posibles_nombres):
 
 def color_semaforo_html(val):
     if not isinstance(val, str): return ''
-    if val in ['VENCIDO', 'PERDIDA', 'CADUCADO', 'VENCIDA', 'PENDIENTE', 'SIGUIENTE EN TURNO']:
+    if val in ['VENCIDO', 'PERDIDA', 'CADUCADO', 'VENCIDA', 'PENDIENTE', 'DISPONIBLE']:
         color = '#f8d7da' if 'VENC' in val or 'PERD' in val else '#d1e7dd'
         text = '#721c24' if 'VENC' in val or 'PERD' in val else '#0f5132'
         return f'background-color: {color}; color: {text}; font-weight: bold;'
-    elif val in ['CRÍTICO', 'RIESGO ALTO', 'RENOVAR YA', 'PRÓXIMA']:
+    elif val in ['CRÍTICO', 'RIESGO ALTO', 'RENOVAR YA', 'PRÓXIMA', 'EN NOVEDAD']:
         return 'background-color: #fff3cd; color: #856404; font-weight: bold;'
     elif val == 'OK':
         return 'background-color: #d4edda; color: #155724;'
@@ -194,7 +213,7 @@ if not links:
     st.error("⚠️ Enlaces de datos no configurados.")
     st.stop()
 
-with st.spinner('Actualizando información estratégica...'):
+with st.spinner('Sincronizando información...'):
     bases = {
         "FUIC": descargar_excel(links.get("FUIC"), "PARA ENVIAR"),
         "PROVIDENCIAS": descargar_excel(links.get("PROVIDENCIAS"), "PROVIDENCIAS"),
@@ -203,11 +222,12 @@ with st.spinner('Actualizando información estratégica...'):
     }
 
 if any(isinstance(v, str) for v in bases.values()):
-    st.error("Error de conexión con OneDrive.")
+    st.error("Error al conectar con OneDrive.")
     st.stop()
 
 df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
 
+# Normalización
 for df in [df_f, df_p, df_b, df_bus]:
     cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
     if cid: df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
@@ -227,6 +247,7 @@ col_f_not = buscar_columna_flexible(df_f, ["Fecha Not MP"])
 col_estado = buscar_columna_flexible(df_f, ["Estado Proceso en el Mes que se Rinde"])
 col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
 
+# Etapa dinámica
 cols_etapas = [c for c in df_f.columns if 'ETAPA' in c.upper()]
 def get_stage(row):
     for col in reversed(cols_etapas):
@@ -301,9 +322,13 @@ df_alertas = pd.DataFrame(alertas)
 # 4. NAVEGACIÓN Y FILTROS
 # =========================================================
 with st.sidebar:
-    st.markdown(f"### 👤 {st.session_state.usuario_logueado}")
+    # Selector de Rol para habilitar botones de admin (Simulación)
+    rol = st.radio("Rol Actual:", ["Funcionario", "Administrador"])
+    if rol == "Administrador": st.session_state.usuario_logueado = "admin"
+    else: st.session_state.usuario_logueado = "visitante"
+    
     st.write("---")
-    st.markdown("### 🧭 Navegación")
+    st.markdown("### 🧭 Menú")
     if st.button("🏠 Inicio"): st.session_state.modulo_actual = "🏠 Inicio"
     if st.button("⚖️ Reparto de Procesos"): st.session_state.modulo_actual = "⚖️ Reparto"
     if st.button("📋 Inventario de Alertas"): st.session_state.modulo_actual = "📋 Inventario"
@@ -316,7 +341,7 @@ with st.sidebar:
     sel_sust = st.multiselect("Funcionario:", todos_sust)
     
     st.write("---")
-    if st.button("🚪 Cerrar Sesión"):
+    if st.button("🚪 Salir"):
         st.session_state.password_correct = False
         st.rerun()
 
@@ -324,71 +349,104 @@ with st.sidebar:
 # 5. RENDERIZADO DE MÓDULOS
 # =========================================================
 st.markdown("<h1>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
-df_disp = df_alertas.copy()
-if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
 
-# --- MÓDULO: REPARTO ---
+# --- MÓDULO: REPARTO (AVANZADO) ---
 if st.session_state.modulo_actual == "⚖️ Reparto":
-    st.subheader("⚖️ Sistema de Reparto y Asignación de Procesos")
+    st.subheader("⚖️ Gestión de Asignación de Carga")
     
-    index_actual = st.session_state.reparto_index
-    func_actual = LISTA_REPARTO[index_actual]
+    # Lógica de cálculo del próximo disponible
+    idx_teorico = st.session_state.reparto_base_index
+    titular = ORDEN_NOMBRES[idx_teorico]
     
-    col_t1, col_t2 = st.columns([2, 1])
-    with col_t1:
-        st.info(f"**PRÓXIMA ASIGNACIÓN CORRESPONDE A:** \n\n ### {func_actual}")
+    # Buscar el primer disponible en el ciclo actual
+    lista_actualizada = []
+    idx_proximo_disponible = -1
     
-    with col_t2:
-        if st.session_state.usuario_logueado == "admin":
-            st.markdown('<div class="btn-reparto">', unsafe_allow_html=True)
-            if st.button("🟢 Confirmar Asignación", use_container_width=True):
-                st.session_state.reparto_index = (index_actual + 1) % len(LISTA_REPARTO)
+    # Recorremos la lista desde el offset para encontrar quién sigue hoy
+    for i in range(len(ORDEN_NOMBRES)):
+        real_idx = (idx_teorico + i + st.session_state.reparto_sub_offset) % len(ORDEN_NOMBRES)
+        nombre = ORDEN_NOMBRES[real_idx]
+        if st.session_state.estados_funcionarios[nombre]:
+            idx_proximo_disponible = real_idx
+            break
+    
+    suplente = ORDEN_NOMBRES[idx_proximo_disponible]
+
+    # UI: Tarjeta de Estado
+    if titular == suplente:
+        st.markdown(f"""<div class="card-turno"> <h3>Próxima Asignación:</h3> <h2 style='color:#28a745 !important;'>{titular}</h2> </div>""", unsafe_allow_html=True)
+    else:
+        st.markdown(f"""<div class="card-alerta-novedad"> <strong>⚠️ AJUSTE POR NOVEDAD:</strong><br> El titular es <b>{titular}</b>, pero se encuentra en novedad administrativa.<br> La asignación se recomienda para: <b>{suplente}</b>. </div>""", unsafe_allow_html=True)
+
+    # Botones de Acción (Solo para Admin)
+    if st.session_state.usuario_logueado == "admin":
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button(f"✅ Confirmar Asignación a {suplente}", type="primary"):
+                # Si le asignamos al titular, el puntero base avanza
+                if suplente == titular:
+                    st.session_state.reparto_base_index = (idx_teorico + 1) % len(ORDEN_NOMBRES)
+                    st.session_state.reparto_sub_offset = 0 # Reseteamos suplencias
+                else:
+                    # Si fue a un suplente, el base NO avanza (Felipe sigue esperando), pero el offset sí para que el próximo suplente sea otro
+                    st.session_state.reparto_sub_offset += 1
+                st.success(f"Asignación registrada para {suplente}")
                 st.rerun()
-            if st.button("🟡 Novedad (Saltar Turno)", use_container_width=True):
-                st.session_state.reparto_index = (index_actual + 1) % len(LISTA_REPARTO)
+        with c2:
+            if st.button("🔄 Forzar siguiente en lista"):
+                st.session_state.reparto_base_index = (idx_teorico + 1) % len(ORDEN_NOMBRES)
+                st.session_state.reparto_sub_offset = 0
                 st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.warning("⚠️ Controles reservados para el Administrador.")
+    
+    st.write("---")
+    
+    # Gestión de estados (Solo Admin puede cambiar)
+    st.write("**Panel de Disponibilidad (Novedades Administrativas):**")
+    cols_n = st.columns(3)
+    for i, nombre in enumerate(ORDEN_NOMBRES):
+        with cols_n[i % 3]:
+            # Guardamos el estado en el diccionario
+            disp = st.toggle(f"{nombre}", value=st.session_state.estados_funcionarios[nombre], key=f"t_{i}")
+            st.session_state.estados_funcionarios[nombre] = disp
 
     st.write("---")
     
-    data_reparto = []
-    for i, nombre in enumerate(LISTA_REPARTO):
-        estado = "SIGUIENTE EN TURNO" if i == index_actual else "EN ESPERA"
-        data_reparto.append({"Orden": i + 1, "Funcionario": nombre, "Estado de Reparto": estado})
+    # Tabla visual
+    data_rep = []
+    for i, nombre in enumerate(ORDEN_NOMBRES):
+        estado_v = "DISPONIBLE" if st.session_state.estados_funcionarios[nombre] else "EN NOVEDAD"
+        indicador = ""
+        if i == idx_teorico: indicador = "⭐ TITULAR TURNO"
+        elif i == idx_proximo_disponible: indicador = "👉 SIGUIENTE DISPONIBLE"
+        
+        data_rep.append({"Orden": i+1, "Funcionario": nombre, "Estado": estado_v, "Observación": indicador})
     
-    df_rep_view = pd.DataFrame(data_reparto)
-    html_rep = df_rep_view.style.map(color_semaforo_html, subset=["Estado de Reparto"]).to_html(classes='tabla-hibrida', index=False)
-    html_rep = html_rep.replace('<td>', '<td class="text-col">', len(LISTA_REPARTO))
-    
-    st.markdown(f'<div class="scroll-container">{html_rep}</div>', unsafe_allow_html=True)
-    st.caption("Nota: El orden de reparto es cíclico (Marco Antonio precede a Tito Bartolomé).")
+    df_rv = pd.DataFrame(data_rep)
+    html_rv = df_rv.style.map(color_semaforo_html, subset=["Estado"]).to_html(classes='tabla-hibrida', index=False)
+    html_rv = html_rv.replace('<td>', '<td class="text-col">', len(ORDEN_NOMBRES))
+    st.markdown(f'<div class="scroll-container">{html_rv}</div>', unsafe_allow_html=True)
 
-# --- MÓDULO: INICIO ---
+# --- RESTO DE MÓDULOS (PRESERVADOS) ---
 elif st.session_state.modulo_actual == "🏠 Inicio":
-    st.markdown("### Resumen Ejecutivo de Alertas")
+    st.markdown("### Resumen de Alertas")
     c1, c2, c3, c4 = st.columns(4)
     with c1: st.metric("Riesgo Fuerza", len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"]))
     with c2: st.metric("Medidas x Renovar", len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"]))
     with c3: st.metric("Búsquedas Vencidas", len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]))
     with c4: st.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
-    st.write("---")
-    st.info("Navegue por los módulos laterales para gestionar la carga operativa.")
+    st.info("Utilice el menú lateral para gestionar el reparto o ver alertas.")
 
-# --- MÓDULO: INVENTARIO ---
 elif st.session_state.modulo_actual == "📋 Inventario":
     st.markdown("### 📋 Inventario de Alertas Activas")
-    cols_v = ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
+    df_disp = df_alertas.copy()
+    if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
     if not df_disp.empty:
-        styled_df = df_disp[cols_v].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"])
-        html_table = styled_df.to_html(classes='tabla-hibrida', index=False, escape=False)
-        html_table = html_table.replace('<td>', '<td class="text-col">', 3 * len(df_disp))
-        st.markdown(f'<div class="scroll-container">{html_table}</div>', unsafe_allow_html=True)
-    else:
-        st.success("✅ Todo al día.")
+        cols_v = ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
+        html_main = df_disp[cols_v].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]).to_html(classes='tabla-hibrida', index=False, escape=False)
+        html_main = html_main.replace('<td>', '<td class="text-col">', 3 * len(df_disp))
+        st.markdown(f'<div class="scroll-container">{html_main}</div>', unsafe_allow_html=True)
+    else: st.success("✅ Todo al día.")
 
-# --- MÓDULO: TOP 10 ---
 elif st.session_state.modulo_actual == "🚨 Top 10":
     st.markdown("### 🚨 Prioridad: Riesgo Fuerza Ejecutoria")
     df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
@@ -400,10 +458,8 @@ elif st.session_state.modulo_actual == "🚨 Top 10":
         html_t10 = df_p_fe[["No. Proceso", "Sustanciador", "Ejecutoria", "Vencimiento", "Días"]].to_html(classes='tabla-hibrida', index=False)
         html_t10 = html_t10.replace('<td>', '<td class="text-col">', 2 * len(df_p_fe))
         st.markdown(f'<div class="scroll-container">{html_t10}</div>', unsafe_allow_html=True)
-    else:
-        st.success("✅ Sin riesgos.")
+    else: st.success("✅ Sin riesgos.")
 
-# --- MÓDULO: CRONOGRAMA ---
 elif st.session_state.modulo_actual == "🔎 Cronograma":
     st.markdown("### 🔎 Cronograma de Gestión: Búsqueda de Bienes")
     df_act = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
@@ -415,15 +471,13 @@ elif st.session_state.modulo_actual == "🔎 Cronograma":
     df_cron = pd.DataFrame(cron_list).sort_values(by="Fecha_F")
     if sel_sust: df_cron = df_cron[df_cron['Sustanciador'].isin(sel_sust)]
     if not df_cron.empty:
-        mask_o = df_cron["Es_Omision"].values
         df_cv = df_cron[["No. Proceso", "Sustanciador"]].copy()
         df_cv['Mes Próxima BB'] = df_cron['Fecha_F'].apply(lambda x: MESES_ES.get(x.month, ""))
         def style_red(df):
             stls = pd.DataFrame('', index=df.index, columns=df.columns)
-            for i, o in enumerate(mask_o):
+            for i, o in enumerate(df_cron["Es_Omision"].values):
                 if o: stls.iloc[i, 2] = 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
             return stls
         html_cron = df_cv.reset_index(drop=True).style.apply(style_red, axis=None).to_html(classes='tabla-hibrida', index=False)
         html_cron = html_cron.replace('<td>', '<td class="text-col">', 2 * len(df_cv))
         st.markdown(f'<div class="scroll-container">{html_cron}</div>', unsafe_allow_html=True)
-        st.caption("Nota: Meses en rojo indican omisión de búsquedas previas.")
