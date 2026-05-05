@@ -20,10 +20,10 @@ if 'modulo_actual' not in st.session_state:
     st.session_state.modulo_actual = "🏠 Inicio"
 if 'usuario_logueado' not in st.session_state:
     st.session_state.usuario_logueado = ""
-# Índice del titular del turno (quién debería recibir el proceso)
+# Índice del titular del turno
 if 'reparto_base_index' not in st.session_state:
     st.session_state.reparto_base_index = 0
-# Diccionario de novedades (True = Activo, False = En Novedad)
+# Diccionario de novedades
 if 'estados_funcionarios' not in st.session_state:
     st.session_state.estados_funcionarios = {
         "Felipe Carlos Barraza Díaz": True,
@@ -38,7 +38,6 @@ if 'estados_funcionarios' not in st.session_state:
         "Marco Antonio Torres Rodríguez": True,
         "Tito Bartolomé Morales Barrera": True
     }
-# Offset para cuando hay gente en novedad y el turno debe saltar al siguiente disponible
 if 'reparto_sub_offset' not in st.session_state:
     st.session_state.reparto_sub_offset = 0
 
@@ -76,6 +75,7 @@ if not check_password():
 # =========================================================
 st.markdown("""
     <style>
+    /* OCULTAR ELEMENTOS DE DESARROLLO */
     #MainMenu, footer, header, .stDeployButton, #stDecoration, 
     [data-testid="stStatusWidget"], .viewerBadge_container__1QSob, 
     .stAppToolbar, iframe[title="manage-app"] { visibility: hidden !important; display: none !important; }
@@ -134,7 +134,6 @@ st.markdown("""
 
     .stButton>button { width: 100%; border-radius: 5px; text-align: left; }
     
-    /* Estilos especiales para el módulo de reparto */
     .card-turno {
         background-color: #ffffff;
         border-radius: 10px;
@@ -322,13 +321,17 @@ df_alertas = pd.DataFrame(alertas)
 # 4. NAVEGACIÓN Y FILTROS
 # =========================================================
 with st.sidebar:
-    # Selector de Rol para habilitar botones de admin (Simulación)
-    rol = st.radio("Rol Actual:", ["Funcionario", "Administrador"])
-    if rol == "Administrador": st.session_state.usuario_logueado = "admin"
-    else: st.session_state.usuario_logueado = "visitante"
-    
+    # EL SELECTOR DE ROL SOLO APARECE SI EL USUARIO LOGUEADO ES 'admin'
+    if st.session_state.usuario_logueado == "admin":
+        st.markdown("### 🛠️ Configuración Admin")
+        rol_simulado = st.radio("Simular Vista:", ["Administrador", "Funcionario"], horizontal=True)
+        # Sincronizamos permiso interno con el selector
+        es_admin_actual = (rol_simulado == "Administrador")
+    else:
+        es_admin_actual = False
+
     st.write("---")
-    st.markdown("### 🧭 Menú")
+    st.markdown("### 🧭 Menú Principal")
     if st.button("🏠 Inicio"): st.session_state.modulo_actual = "🏠 Inicio"
     if st.button("⚖️ Reparto de Procesos"): st.session_state.modulo_actual = "⚖️ Reparto"
     if st.button("📋 Inventario de Alertas"): st.session_state.modulo_actual = "📋 Inventario"
@@ -338,10 +341,10 @@ with st.sidebar:
     st.write("---")
     st.markdown("### 🔍 Filtro Maestro")
     todos_sust = sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else []
-    sel_sust = st.multiselect("Funcionario:", todos_sust)
+    sel_sust = st.multiselect("Filtrar Funcionario:", todos_sust)
     
     st.write("---")
-    if st.button("🚪 Salir"):
+    if st.button("🚪 Salir del Tablero"):
         st.session_state.password_correct = False
         st.rerun()
 
@@ -350,19 +353,15 @@ with st.sidebar:
 # =========================================================
 st.markdown("<h1>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
 
-# --- MÓDULO: REPARTO (AVANZADO) ---
+# --- MÓDULO: REPARTO (LOGICA DE RESERVA DE TURNO) ---
 if st.session_state.modulo_actual == "⚖️ Reparto":
-    st.subheader("⚖️ Gestión de Asignación de Carga")
+    st.subheader("⚖️ Gestión de Asignación y Turnos")
     
-    # Lógica de cálculo del próximo disponible
     idx_teorico = st.session_state.reparto_base_index
     titular = ORDEN_NOMBRES[idx_teorico]
     
-    # Buscar el primer disponible en el ciclo actual
-    lista_actualizada = []
+    # Calcular el próximo disponible para asignar HOY
     idx_proximo_disponible = -1
-    
-    # Recorremos la lista desde el offset para encontrar quién sigue hoy
     for i in range(len(ORDEN_NOMBRES)):
         real_idx = (idx_teorico + i + st.session_state.reparto_sub_offset) % len(ORDEN_NOMBRES)
         nombre = ORDEN_NOMBRES[real_idx]
@@ -372,51 +371,47 @@ if st.session_state.modulo_actual == "⚖️ Reparto":
     
     suplente = ORDEN_NOMBRES[idx_proximo_disponible]
 
-    # UI: Tarjeta de Estado
+    # UI: Mensaje de Turno
     if titular == suplente:
-        st.markdown(f"""<div class="card-turno"> <h3>Próxima Asignación:</h3> <h2 style='color:#28a745 !important;'>{titular}</h2> </div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="card-turno"> <h3>Próxima Asignación Corresponde a:</h3> <h2 style='color:#28a745 !important;'>{titular}</h2> </div>""", unsafe_allow_html=True)
     else:
-        st.markdown(f"""<div class="card-alerta-novedad"> <strong>⚠️ AJUSTE POR NOVEDAD:</strong><br> El titular es <b>{titular}</b>, pero se encuentra en novedad administrativa.<br> La asignación se recomienda para: <b>{suplente}</b>. </div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="card-alerta-novedad"> <strong>⚠️ AJUSTE POR NOVEDAD ADMINISTRATIVA:</strong><br> El titular del turno es <b>{titular}</b>, pero se encuentra ausente.<br> El sistema recomienda asignar a: <b>{suplente}</b>. </div>""", unsafe_allow_html=True)
 
-    # Botones de Acción (Solo para Admin)
-    if st.session_state.usuario_logueado == "admin":
+    # Botones de Acción (Solo Admin)
+    if es_admin_actual:
         c1, c2 = st.columns(2)
         with c1:
             if st.button(f"✅ Confirmar Asignación a {suplente}", type="primary"):
-                # Si le asignamos al titular, el puntero base avanza
                 if suplente == titular:
                     st.session_state.reparto_base_index = (idx_teorico + 1) % len(ORDEN_NOMBRES)
-                    st.session_state.reparto_sub_offset = 0 # Reseteamos suplencias
+                    st.session_state.reparto_sub_offset = 0
                 else:
-                    # Si fue a un suplente, el base NO avanza (Felipe sigue esperando), pero el offset sí para que el próximo suplente sea otro
                     st.session_state.reparto_sub_offset += 1
-                st.success(f"Asignación registrada para {suplente}")
+                st.success(f"Asignación registrada exitosamente.")
                 st.rerun()
         with c2:
-            if st.button("🔄 Forzar siguiente en lista"):
+            if st.button("🔄 Saltar turno definitivamente"):
                 st.session_state.reparto_base_index = (idx_teorico + 1) % len(ORDEN_NOMBRES)
                 st.session_state.reparto_sub_offset = 0
                 st.rerun()
-    
-    st.write("---")
-    
-    # Gestión de estados (Solo Admin puede cambiar)
-    st.write("**Panel de Disponibilidad (Novedades Administrativas):**")
-    cols_n = st.columns(3)
-    for i, nombre in enumerate(ORDEN_NOMBRES):
-        with cols_n[i % 3]:
-            # Guardamos el estado en el diccionario
-            disp = st.toggle(f"{nombre}", value=st.session_state.estados_funcionarios[nombre], key=f"t_{i}")
-            st.session_state.estados_funcionarios[nombre] = disp
 
+        st.write("---")
+        # PANEL DE DISPONIBILIDAD (SOLO ADMIN)
+        st.write("**Panel de Control de Novedades (Vacaciones / Licencias):**")
+        cols_n = st.columns(3)
+        for i, nombre in enumerate(ORDEN_NOMBRES):
+            with cols_n[i % 3]:
+                disp = st.toggle(f"{nombre}", value=st.session_state.estados_funcionarios[nombre], key=f"t_{i}")
+                st.session_state.estados_funcionarios[nombre] = disp
+    
     st.write("---")
     
-    # Tabla visual
+    # TABLA VISUAL PARA TODOS
     data_rep = []
     for i, nombre in enumerate(ORDEN_NOMBRES):
         estado_v = "DISPONIBLE" if st.session_state.estados_funcionarios[nombre] else "EN NOVEDAD"
         indicador = ""
-        if i == idx_teorico: indicador = "⭐ TITULAR TURNO"
+        if i == idx_teorico: indicador = "⭐ TITULAR DEL TURNO"
         elif i == idx_proximo_disponible: indicador = "👉 SIGUIENTE DISPONIBLE"
         
         data_rep.append({"Orden": i+1, "Funcionario": nombre, "Estado": estado_v, "Observación": indicador})
@@ -425,16 +420,17 @@ if st.session_state.modulo_actual == "⚖️ Reparto":
     html_rv = df_rv.style.map(color_semaforo_html, subset=["Estado"]).to_html(classes='tabla-hibrida', index=False)
     html_rv = html_rv.replace('<td>', '<td class="text-col">', len(ORDEN_NOMBRES))
     st.markdown(f'<div class="scroll-container">{html_rv}</div>', unsafe_allow_html=True)
+    st.caption("Nota: La estrella (⭐) indica quién recuperará el turno preferente al regresar de su novedad.")
 
-# --- RESTO DE MÓDULOS (PRESERVADOS) ---
+# --- OTROS MÓDULOS ---
 elif st.session_state.modulo_actual == "🏠 Inicio":
-    st.markdown("### Resumen de Alertas")
+    st.markdown("### Resumen Operativo")
     c1, c2, c3, c4 = st.columns(4)
     with c1: st.metric("Riesgo Fuerza", len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"]))
     with c2: st.metric("Medidas x Renovar", len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"]))
     with c3: st.metric("Búsquedas Vencidas", len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]))
     with c4: st.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
-    st.info("Utilice el menú lateral para gestionar el reparto o ver alertas.")
+    st.info("Utilice el menú de navegación lateral para gestionar la carga de trabajo.")
 
 elif st.session_state.modulo_actual == "📋 Inventario":
     st.markdown("### 📋 Inventario de Alertas Activas")
@@ -445,10 +441,10 @@ elif st.session_state.modulo_actual == "📋 Inventario":
         html_main = df_disp[cols_v].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]).to_html(classes='tabla-hibrida', index=False, escape=False)
         html_main = html_main.replace('<td>', '<td class="text-col">', 3 * len(df_disp))
         st.markdown(f'<div class="scroll-container">{html_main}</div>', unsafe_allow_html=True)
-    else: st.success("✅ Todo al día.")
+    else: st.success("✅ Gestión al día.")
 
 elif st.session_state.modulo_actual == "🚨 Top 10":
-    st.markdown("### 🚨 Prioridad: Riesgo Fuerza Ejecutoria")
+    st.markdown("### 🚨 Top 10: Riesgo Fuerza Ejecutoria")
     df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
     if sel_sust: df_p_fe = df_p_fe[df_p_fe['Sustanciador'].isin(sel_sust)]
     df_p_fe = df_p_fe.head(10).copy()
@@ -458,10 +454,10 @@ elif st.session_state.modulo_actual == "🚨 Top 10":
         html_t10 = df_p_fe[["No. Proceso", "Sustanciador", "Ejecutoria", "Vencimiento", "Días"]].to_html(classes='tabla-hibrida', index=False)
         html_t10 = html_t10.replace('<td>', '<td class="text-col">', 2 * len(df_p_fe))
         st.markdown(f'<div class="scroll-container">{html_t10}</div>', unsafe_allow_html=True)
-    else: st.success("✅ Sin riesgos.")
+    else: st.success("✅ Sin riesgos detectados.")
 
 elif st.session_state.modulo_actual == "🔎 Cronograma":
-    st.markdown("### 🔎 Cronograma de Gestión: Búsqueda de Bienes")
+    st.markdown("### 🔎 Cronograma de Búsqueda de Bienes")
     df_act = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
     cron_list = []
     for _, r in df_act.iterrows():
