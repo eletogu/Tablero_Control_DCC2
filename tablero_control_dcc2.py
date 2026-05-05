@@ -6,12 +6,39 @@ import unicodedata
 import re
 import io
 import requests
+import json
+import os
 from datetime import datetime, timedelta
 
 # =========================================================
-# 1. CONFIGURACIÓN Y SEGURIDAD
+# 1. CONFIGURACIÓN, SEGURIDAD Y PERSISTENCIA TEMPORAL
 # =========================================================
 st.set_page_config(page_title="Tablero de Control DCC2", layout="wide")
+
+DB_FILE = "reparto_persistente.json"
+
+def cargar_base_reparto():
+    """Carga los datos guardados en el archivo local si existe."""
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return None
+    return None
+
+def guardar_base_reparto():
+    """Guarda el estado actual del reparto en el archivo local."""
+    data = {
+        "reparto_base_index": st.session_state.reparto_base_index,
+        "reparto_sub_offset": st.session_state.reparto_sub_offset,
+        "estados_funcionarios": st.session_state.estados_funcionarios
+    }
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        st.error(f"Error al guardar persistencia: {e}")
 
 # Inicialización de estados globales
 if 'password_correct' not in st.session_state:
@@ -21,32 +48,34 @@ if 'modulo_actual' not in st.session_state:
 if 'usuario_logueado' not in st.session_state:
     st.session_state.usuario_logueado = ""
 
-# Índice del titular del turno (quién debería recibir el proceso según el orden base)
+# CARGA DE PERSISTENCIA O VALORES POR DEFECTO
+persist = cargar_base_reparto()
+
 if 'reparto_base_index' not in st.session_state:
-    st.session_state.reparto_base_index = 0
+    st.session_state.reparto_base_index = persist["reparto_base_index"] if persist else 0
 
-# Diccionario de disponibilidad (True = Disponible, False = En Novedad)
 if 'estados_funcionarios' not in st.session_state:
-    st.session_state.estados_funcionarios = {
-        "Felipe Carlos Barraza Díaz": True,
-        "Félix Roberto Camargo Caballero": True,
-        "Frey Carlos Salamanca Ramírez": True,
-        "Gerardo Cepeda Rubiano": True,
-        "José Luis Gómez Escobar": True,
-        "Katy Castillo Rojas": True,
-        "Manuel Alejandro Cuentas Sardoth": True,
-        "Maria Fernanda Molina Díaz Granados": True,
-        "Marleny Ibarra Núñez": True,
-        "Marco Antonio Torres Rodríguez": True,
-        "Tito Bartolomé Morales Barrera": True
-    }
+    if persist and "estados_funcionarios" in persist:
+        st.session_state.estados_funcionarios = persist["estados_funcionarios"]
+    else:
+        st.session_state.estados_funcionarios = {
+            "Felipe Carlos Barraza Díaz": True,
+            "Félix Roberto Camargo Caballero": True,
+            "Frey Carlos Salamanca Ramírez": True,
+            "Gerardo Cepeda Rubiano": True,
+            "José Luis Gómez Escobar": True,
+            "Katy Castillo Rojas": True,
+            "Manuel Alejandro Cuentas Sardoth": True,
+            "Maria Fernanda Molina Díaz Granados": True,
+            "Marleny Ibarra Núñez": True,
+            "Marco Antonio Torres Rodríguez": True,
+            "Tito Bartolomé Morales Barrera": True
+        }
 
-# Offset para gestionar suplencias rotativas cuando el titular está ausente
 if 'reparto_sub_offset' not in st.session_state:
-    st.session_state.reparto_sub_offset = 0
+    st.session_state.reparto_sub_offset = persist["reparto_sub_offset"] if persist else 0
 
 def check_password():
-    """Gestiona el acceso restringido mediante credenciales en Secrets."""
     def password_entered():
         user_input = st.session_state["username"].strip()
         pass_input = st.session_state["password"].strip()
@@ -88,13 +117,11 @@ st.markdown("""
     .main { background-color: #f8f9fa; }
     h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; text-align: center; }
 
-    /* Estilo de tarjetas de métricas */
     .stMetric { 
         background-color: #ffffff; padding: 10px; border-radius: 10px; 
         box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 4px solid #003366;
     }
 
-    /* Contenedor de tabla con ajuste de ancho dinámico */
     .scroll-container {
         max-height: 500px;
         overflow-y: auto;
@@ -109,7 +136,6 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
 
-    /* Tabla Híbrida: Compacta, 13px, alineación específica */
     .tabla-hibrida {
         width: auto !important;
         border-collapse: collapse !important;
@@ -133,18 +159,15 @@ st.markdown("""
         padding: 2px 12px !important;
         line-height: 1.1 !important;
         vertical-align: middle !important;
-        text-align: center !important; /* Centrado por defecto para estados/fechas */
+        text-align: center !important;
         white-space: nowrap;
     }
     
-    /* Clase para alinear texto a la izquierda */
     .text-col { text-align: left !important; padding-left: 15px !important; }
     .tabla-hibrida tbody tr:hover { background-color: #f1f5f9; }
 
-    /* Botones laterales */
     .stButton>button { width: 100%; border-radius: 5px; text-align: left; }
     
-    /* Tarjetas del módulo de reparto */
     .card-turno {
         background-color: #ffffff;
         border-radius: 10px;
@@ -216,7 +239,7 @@ def descargar_excel(url, hoja):
         return str(e)
 
 # =========================================================
-# 3. PROCESAMIENTO DE DATOS INSTITUCIONALES
+# 3. PROCESAMIENTO DE DATOS
 # =========================================================
 links = st.secrets.get("links_onedrive", {})
 if not links:
@@ -232,12 +255,11 @@ with st.spinner('Sincronizando información estratégica...'):
     }
 
 if any(isinstance(v, str) for v in bases.values()):
-    st.error("Fallo en la conexión con OneDrive. Verifique los enlaces.")
+    st.error("Fallo en la conexión con OneDrive.")
     st.stop()
 
 df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
 
-# Estandarización de identificadores y tipos de datos
 for df in [df_f, df_p, df_b, df_bus]:
     cid = buscar_columna_flexible(df, ["No. Proceso", "PCC", "PROCESO"])
     if cid: df['ID_LINK'] = df[cid].astype(str).apply(normalizar_id)
@@ -257,7 +279,6 @@ col_f_not = buscar_columna_flexible(df_f, ["Fecha Not MP"])
 col_estado = buscar_columna_flexible(df_f, ["Estado Proceso en el Mes que se Rinde"])
 col_reg_b = buscar_columna_flexible(df_b, ["No. Registro (Matrícula Inmobiliaria/Mercantil, No. Cuenta, No. Placa, Etc)"])
 
-# Etapa actual según histórico del FUIC
 cols_etapas = [c for c in df_f.columns if 'ETAPA' in c.upper()]
 def get_stage(row):
     for col in reversed(cols_etapas):
@@ -266,14 +287,12 @@ def get_stage(row):
     return "N/A"
 df_f['ETAPA_REAL'] = df_f.apply(get_stage, axis=1)
 
-# Lógica de detección de alertas
 for _, row in df_f.iterrows():
     pid = row.get('ID_LINK', '')
     if "ARCHIVADO" in str(row.get(col_estado, "")).upper(): continue
     al_mp, al_fe, al_me, al_bu = "OK", "OK", "OK", "OK"
     venc_fuerza, fb, registro_afectado = pd.NaT, pd.NaT, ""
 
-    # Alerta Mandamiento
     provs = df_p[df_p['ID_LINK'] == pid]
     cnp, cfp = buscar_columna_flexible(df_p, ["Nombre Providencia"]), buscar_columna_flexible(df_p, ["Fecha Providencia"])
     if cnp and cfp:
@@ -283,14 +302,12 @@ for _, row in df_f.iterrows():
             if (hoy - fa).days >= 90: al_mp = "VENCIDO"
             elif (hoy - fa).days >= 60: al_mp = "CRÍTICO"
 
-    # Alerta Fuerza Ejecutoria
     fej = row.get(col_f_ejec)
     if pd.notna(fej) and pd.isna(row.get(col_f_not)):
         venc_fuerza = fej + timedelta(days=1826)
         if (hoy - fej).days / 365.25 >= 5: al_fe = "PERDIDA"
         elif (hoy - fej).days / 365.25 >= 4: al_fe = "RIESGO ALTO"
 
-    # Alerta Medidas Inmuebles
     b_pr = df_b[df_b['ID_LINK'] == pid]
     ctb, cfe_reg = buscar_columna_flexible(df_b, ["Tipo Bien Identificado"]), buscar_columna_flexible(df_b, ["Fecha Práctica, Inscripción o Registro Embargo"])
     if ctb and cfe_reg:
@@ -313,7 +330,6 @@ for _, row in df_f.iterrows():
             elif (fv - hoy).days / 30 <= 6: al_me = "RENOVAR YA"
             if al_me != "OK": registro_afectado = ", ".join(sorted(list(set(registros_alerta))))
 
-    # Alerta Búsqueda de Bienes
     l_date_row = df_bus_latest[df_bus_latest['ID_LINK'] == pid]['Ultima_Busq_Real']
     fb = l_date_row.iloc[0] if not l_date_row.empty else pd.NaT
     if pd.isna(fb): al_bu = "PENDIENTE"
@@ -334,19 +350,19 @@ for _, row in df_f.iterrows():
 df_alertas = pd.DataFrame(alertas)
 
 # =========================================================
-# 4. NAVEGACIÓN Y FILTROS (BARRA LATERAL)
+# 4. NAVEGACIÓN Y FILTROS (SIDEBAR)
 # =========================================================
 with st.sidebar:
-    # EL SELECTOR DE ROL SOLO APARECE SI EL USUARIO LOGUEADO ES 'elkinl.tovar'
     if st.session_state.usuario_logueado == "elkinl.tovar":
         st.markdown("### ⚙️ Administración")
-        rol_simulado = st.radio("Modo de Vista:", ["Administrador", "Funcionario"], horizontal=True)
+        # Elkin entra directamente como Admin por defecto
+        rol_simulado = st.radio("Modo de Vista:", ["Administrador", "Funcionario"], horizontal=True, index=0)
         es_admin_actual = (rol_simulado == "Administrador")
     else:
         es_admin_actual = False
 
     st.write("---")
-    st.markdown("### 🧭 Menú")
+    st.markdown("### 🧭 Menú Principal")
     if st.button("🏠 Inicio"): st.session_state.modulo_actual = "🏠 Inicio"
     if st.button("⚖️ Reparto de Procesos"): st.session_state.modulo_actual = "⚖️ Reparto"
     if st.button("📋 Inventario de Alertas"): st.session_state.modulo_actual = "📋 Inventario"
@@ -354,7 +370,7 @@ with st.sidebar:
     if st.button("🔎 Cronograma Búsqueda"): st.session_state.modulo_actual = "🔎 Cronograma"
     
     st.write("---")
-    st.markdown("### 🔍 Filtro por Sustanciador")
+    st.markdown("### 🔍 Filtro Maestro")
     todos_sust = sorted(df_alertas['Sustanciador'].unique()) if not df_alertas.empty else []
     sel_sust = st.multiselect("Funcionario:", todos_sust)
     
@@ -368,14 +384,14 @@ with st.sidebar:
 # =========================================================
 st.markdown("<h1>📊 TABLERO DE CONTROL - DCC2</h1>", unsafe_allow_html=True)
 
-# --- MÓDULO: REPARTO (LÓGICA ELKINL.TOVAR CON RESERVA) ---
+# --- MÓDULO: REPARTO (LÓGICA ELKINL.TOVAR CON PERSISTENCIA) ---
 if st.session_state.modulo_actual == "⚖️ Reparto":
     st.subheader("⚖️ Gestión de Asignación y Disponibilidad")
     
     idx_teorico = st.session_state.reparto_base_index
     titular = ORDEN_NOMBRES[idx_teorico]
     
-    # Calcular el próximo disponible real para hoy
+    # Calcular próximo disponible real para hoy
     idx_proximo_disponible = -1
     for i in range(len(ORDEN_NOMBRES)):
         real_idx = (idx_teorico + i + st.session_state.reparto_sub_offset) % len(ORDEN_NOMBRES)
@@ -402,21 +418,30 @@ if st.session_state.modulo_actual == "⚖️ Reparto":
                     st.session_state.reparto_sub_offset = 0
                 else:
                     st.session_state.reparto_sub_offset += 1
+                guardar_base_reparto() # Guardado persistente
                 st.success(f"Asignación registrada.")
                 st.rerun()
         with c2:
             if st.button("🔄 Saltar turno definitivamente"):
                 st.session_state.reparto_base_index = (idx_teorico + 1) % len(ORDEN_NOMBRES)
                 st.session_state.reparto_sub_offset = 0
+                guardar_base_reparto() # Guardado persistente
                 st.rerun()
 
         st.write("---")
         st.write("**Panel de Novedades (Vacaciones / Licencias):**")
         cols_n = st.columns(3)
+        cambio_novedad = False
         for i, nombre in enumerate(ORDEN_NOMBRES):
             with cols_n[i % 3]:
+                # Al cambiar el toggle, disparamos el guardado
                 disp = st.toggle(f"{nombre}", value=st.session_state.estados_funcionarios[nombre], key=f"t_{i}")
-                st.session_state.estados_funcionarios[nombre] = disp
+                if disp != st.session_state.estados_funcionarios[nombre]:
+                    st.session_state.estados_funcionarios[nombre] = disp
+                    cambio_novedad = True
+        if cambio_novedad:
+            guardar_base_reparto()
+            st.rerun()
     
     st.write("---")
     
@@ -435,18 +460,16 @@ if st.session_state.modulo_actual == "⚖️ Reparto":
     st.markdown(f'<div class="scroll-container">{html_rv}</div>', unsafe_allow_html=True)
     st.caption("Nota: La estrella (⭐) reserva el turno original de quien está en novedad.")
 
-# --- MÓDULO: INICIO ---
+# --- OTROS MÓDULOS ---
 elif st.session_state.modulo_actual == "🏠 Inicio":
     st.markdown("### Resumen Operativo de Alertas")
     c1, c2, c3, c4 = st.columns(4)
-    # ACTUALIZACIÓN DE TEXTOS EN MÉTRICAS
     with c1: st.metric("En Riesgo de Perdida Ejecutoria", len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"]))
     with c2: st.metric("Medidas x Renovar", len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"]))
     with c3: st.metric("Búsquedas de Bienes Vencidas", len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]))
     with c4: st.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
-    st.info("Utilice el menú lateral para gestionar el reparto o visualizar el inventario de alertas.")
+    st.info("Navegue por el menú lateral para gestionar la carga operativa.")
 
-# --- MÓDULO: INVENTARIO ---
 elif st.session_state.modulo_actual == "📋 Inventario":
     st.markdown("### 📋 Inventario Detallado de Alertas")
     df_disp = df_alertas.copy()
@@ -456,9 +479,8 @@ elif st.session_state.modulo_actual == "📋 Inventario":
         html_main = df_disp[cols_v].style.map(color_semaforo_html, subset=["Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]).to_html(classes='tabla-hibrida', index=False, escape=False)
         html_main = html_main.replace('<td>', '<td class="text-col">', 3 * len(df_disp))
         st.markdown(f'<div class="scroll-container">{html_main}</div>', unsafe_allow_html=True)
-    else: st.success("✅ No hay alertas pendientes.")
+    else: st.success("✅ Gestión al día.")
 
-# --- MÓDULO: TOP 10 ---
 elif st.session_state.modulo_actual == "🚨 Top 10":
     st.markdown("### 🚨 Prioridad: Riesgo de Prescripción (Fuerza Ejecutoria)")
     df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
@@ -470,11 +492,10 @@ elif st.session_state.modulo_actual == "🚨 Top 10":
         html_t10 = df_p_fe[["No. Proceso", "Sustanciador", "Ejecutoria", "Vencimiento", "Días"]].to_html(classes='tabla-hibrida', index=False)
         html_t10 = html_t10.replace('<td>', '<td class="text-col">', 2 * len(df_p_fe))
         st.markdown(f'<div class="scroll-container">{html_t10}</div>', unsafe_allow_html=True)
-    else: st.success("✅ Sin riesgos inminentes.")
+    else: st.success("✅ Sin riesgos críticos.")
 
-# --- MÓDULO: CRONOGRAMA ---
 elif st.session_state.modulo_actual == "🔎 Cronograma":
-    st.markdown("### 🔎 Cronograma de Gestión: Búsqueda de Bienes")
+    st.markdown("### 🔎 Cronograma de Búsqueda de Bienes")
     df_act = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
     cron_list = []
     for _, r in df_act.iterrows():
