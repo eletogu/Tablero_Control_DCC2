@@ -20,6 +20,9 @@ if 'modulo_actual' not in st.session_state:
     st.session_state.modulo_actual = "🏠 Inicio"
 if 'usuario_logueado' not in st.session_state:
     st.session_state.usuario_logueado = ""
+# Estado del reparto (Índice del 0 al 10 para los 11 funcionarios)
+if 'reparto_index' not in st.session_state:
+    st.session_state.reparto_index = 0
 
 def check_password():
     def password_entered():
@@ -51,44 +54,41 @@ if not check_password():
     st.stop()
 
 # =========================================================
-# 2. ESTÉTICA PROFESIONAL Y MARCO AJUSTADO (CSS)
+# 2. ESTÉTICA PROFESIONAL Y BLOQUEO DE INTERFAZ (CSS)
 # =========================================================
 st.markdown("""
     <style>
-    /* 1. OCULTAR ELEMENTOS DE DESARROLLO */
+    /* OCULTAR ELEMENTOS DE DESARROLLO */
     #MainMenu, footer, header, .stDeployButton, #stDecoration, 
     [data-testid="stStatusWidget"], .viewerBadge_container__1QSob, 
     .stAppToolbar, iframe[title="manage-app"] { visibility: hidden !important; display: none !important; }
     
-    /* 2. DISEÑO DE PÁGINA */
     .main { background-color: #f8f9fa; }
     h1, h2, h3 { color: #003366 !important; font-family: 'Segoe UI Semibold', sans-serif; text-align: center; }
 
-    /* 3. MÉTRICAS */
     .stMetric { 
         background-color: #ffffff; padding: 10px; border-radius: 10px; 
         box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-top: 4px solid #003366;
     }
 
-    /* 4. CONTENEDOR AJUSTADO AL TAMAÑO DE LA TABLA Y CENTRADO */
+    /* CONTENEDOR AJUSTADO Y CENTRADO */
     .scroll-container {
         max-height: 450px;
         overflow-y: auto;
-        overflow-x: auto;
         border: 1px solid #dee2e6;
         border-radius: 4px;
         background-color: white;
         margin-bottom: 25px;
-        width: fit-content;      /* AJUSTA EL MARCO AL TAMAÑO DE LA TABLA */
-        max-width: 100%;         /* EVITA QUE SE SALGA DE LA PANTALLA */
-        margin-left: auto;       /* CENTRA EL CONTENEDOR */
-        margin-right: auto;      /* CENTRA EL CONTENEDOR */
+        width: fit-content;
+        max-width: 100%;
+        margin-left: auto;
+        margin-right: auto;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }
 
-    /* 5. TABLA ESTILO EXCEL */
+    /* TABLA HÍBRIDA: TEXTO IZQUIERDA, ESTADOS CENTRO */
     .tabla-hibrida {
-        width: auto !important;  /* NO FUERZA EL 100% PARA QUE EL MARCO SE AJUSTE */
+        width: auto !important;
         border-collapse: collapse !important;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
         font-size: 13px !important;
@@ -103,7 +103,6 @@ st.markdown("""
         z-index: 10;
         border: 1px solid #dee2e6 !important;
         font-weight: bold;
-        white-space: nowrap;
     }
     .tabla-hibrida tbody td {
         border: 1px solid #dee2e6 !important;
@@ -111,24 +110,33 @@ st.markdown("""
         padding: 2px 10px !important;
         line-height: 1.1 !important;
         vertical-align: middle !important;
-        text-align: center !important; /* Centro por defecto */
+        text-align: center !important;
         white-space: nowrap;
     }
     
-    /* ALINEACIÓN IZQUIERDA PARA TEXTO */
-    .text-col {
-        text-align: left !important;
-        padding-left: 12px !important;
-    }
-
+    .text-col { text-align: left !important; padding-left: 12px !important; }
     .tabla-hibrida tbody tr:hover { background-color: #f1f5f9; }
 
-    /* Botones Sidebar */
+    /* BOTONES DE NAVEGACIÓN */
     .stButton>button { width: 100%; border-radius: 5px; text-align: left; }
+    
+    /* BOTONES DE ACCIÓN (REPARTO) */
+    .btn-reparto button {
+        text-align: center !important;
+        font-weight: bold !important;
+        height: 45px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- DICCIONARIO DE MESES ---
+# --- CONFIGURACIÓN DE REPARTO ---
+LISTA_REPARTO = [
+    "Felipe Carlos Barraza Díaz", "Félix Roberto Camargo Caballero", "Frey Carlos Salamanca Ramírez",
+    "Gerardo Cepeda Rubiano", "José Luis Gómez Escobar", "Katy Castillo Rojas",
+    "Manuel Alejandro Cuentas Sardoth", "Maria Fernanda Molina Díaz Granados",
+    "Marleny Ibarra Núñez", "Tito Bartolomé Morales Barrera", "Marco Antonio Torres Rodríguez"
+]
+
 MESES_ES = {
     1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
     7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
@@ -152,8 +160,10 @@ def buscar_columna_flexible(df, posibles_nombres):
 
 def color_semaforo_html(val):
     if not isinstance(val, str): return ''
-    if val in ['VENCIDO', 'PERDIDA', 'CADUCADO', 'VENCIDA', 'PENDIENTE']:
-        return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+    if val in ['VENCIDO', 'PERDIDA', 'CADUCADO', 'VENCIDA', 'PENDIENTE', 'SIGUIENTE EN TURNO']:
+        color = '#f8d7da' if 'VENC' in val or 'PERD' in val else '#d1e7dd'
+        text = '#721c24' if 'VENC' in val or 'PERD' in val else '#0f5132'
+        return f'background-color: {color}; color: {text}; font-weight: bold;'
     elif val in ['CRÍTICO', 'RIESGO ALTO', 'RENOVAR YA', 'PRÓXIMA']:
         return 'background-color: #fff3cd; color: #856404; font-weight: bold;'
     elif val == 'OK':
@@ -177,7 +187,7 @@ if not links:
     st.error("⚠️ Enlaces de datos no configurados.")
     st.stop()
 
-with st.spinner('Sincronizando información institucional...'):
+with st.spinner('Actualizando información estratégica...'):
     bases = {
         "FUIC": descargar_excel(links.get("FUIC"), "PARA ENVIAR"),
         "PROVIDENCIAS": descargar_excel(links.get("PROVIDENCIAS"), "PROVIDENCIAS"),
@@ -186,7 +196,7 @@ with st.spinner('Sincronizando información institucional...'):
     }
 
 if any(isinstance(v, str) for v in bases.values()):
-    st.error("Error al conectar con las bases de datos en OneDrive.")
+    st.error("Error de conexión con OneDrive.")
     st.stop()
 
 df_f, df_p, df_b, df_bus = bases["FUIC"], bases["PROVIDENCIAS"], bases["BIENES"], bases["BUSQUEDAS"]
@@ -288,6 +298,7 @@ with st.sidebar:
     st.write("---")
     st.markdown("### 🧭 Navegación")
     if st.button("🏠 Inicio"): st.session_state.modulo_actual = "🏠 Inicio"
+    if st.button("⚖️ Reparto de Procesos"): st.session_state.modulo_actual = "⚖️ Reparto"
     if st.button("📋 Inventario de Alertas"): st.session_state.modulo_actual = "📋 Inventario"
     if st.button("🚨 Riesgos de Prescripción"): st.session_state.modulo_actual = "🚨 Top 10"
     if st.button("🔎 Cronograma Búsqueda"): st.session_state.modulo_actual = "🔎 Cronograma"
@@ -303,22 +314,66 @@ with st.sidebar:
         st.rerun()
 
 # =========================================================
-# 5. RENDERIZADO (MARCO AJUSTADO Y CENTRADO)
+# 5. RENDERIZADO DE MÓDULOS
 # =========================================================
 st.markdown("<h1>📊 TABLERO ESTRATÉGICO DCC2</h1>", unsafe_allow_html=True)
 df_disp = df_alertas.copy()
 if sel_sust: df_disp = df_disp[df_disp['Sustanciador'].isin(sel_sust)]
 
-if st.session_state.modulo_actual == "🏠 Inicio":
-    st.markdown("### Resumen Ejecutivo")
+# --- MÓDULO: REPARTO (NUEVO) ---
+if st.session_state.modulo_actual == "⚖️ Reparto":
+    st.subheader("⚖️ Sistema de Reparto y Asignación de Procesos")
+    
+    # Identificar el funcionario actual
+    index_actual = st.session_state.reparto_index
+    func_actual = LISTA_REPARTO[index_actual]
+    
+    # Tarjeta de Turno Actual
+    col_t1, col_t2 = st.columns([2, 1])
+    with col_t1:
+        st.info(f"**PRÓXIMA ASIGNACIÓN CORRESPONDE A:** \n\n ### {func_actual}")
+    
+    # Botones de Acción (Solo para Admin)
+    with col_t2:
+        if st.session_state.usuario_logueado == "admin":
+            st.markdown('<div class="btn-reparto">', unsafe_allow_html=True)
+            if st.button("🟢 Confirmar Asignación", use_container_width=True):
+                st.session_state.reparto_index = (index_actual + 1) % len(LISTA_REPARTO)
+                st.rerun()
+            if st.button("🟡 Novedad (Saltar Turno)", use_container_width=True):
+                st.session_state.reparto_index = (index_actual + 1) % len(LISTA_REPARTO)
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.warning("⚠️ Controles de asignación reservados para el Administrador.")
+
+    st.write("---")
+    
+    # Tabla de Listado de Reparto
+    data_reparto = []
+    for i, nombre in enumerate(LISTA_REPARTO):
+        estado = "SIGUIENTE EN TURNO" if i == index_actual else "EN ESPERA"
+        data_reparto.append({"Orden": i + 1, "Funcionario": nombre, "Estado de Reparto": estado})
+    
+    df_rep_view = pd.DataFrame(data_reparto)
+    html_rep = df_rep_view.style.map(color_semaforo_html, subset=["Estado de Reparto"]).to_html(classes='tabla-hibrida', index=False)
+    html_rep = html_rep.replace('<td>', '<td class="text-col">', len(LISTA_REPARTO)) # Alinea 'Funcionario' a la izq
+    
+    st.markdown(f'<div class="scroll-container">{html_rep}</div>', unsafe_allow_html=True)
+    st.caption("Nota: El orden de reparto es cíclico y se actualiza manualmente tras cada asignación efectiva.")
+
+# --- MÓDULO: INICIO ---
+elif st.session_state.modulo_actual == "🏠 Inicio":
+    st.markdown("### Resumen Ejecutivo de Alertas")
     c1, c2, c3, c4 = st.columns(4)
     with c1: st.metric("Riesgo Fuerza", len(df_alertas[df_alertas['Fuerza Ejecutoria'] != "OK"]))
     with c2: st.metric("Medidas x Renovar", len(df_alertas[df_alertas['Medidas (Inm)'] != "OK"]))
     with c3: st.metric("Búsquedas Vencidas", len(df_alertas[df_alertas['Búsqueda Bienes'].isin(["VENCIDA", "PENDIENTE"])]))
     with c4: st.metric("Términos MP", len(df_alertas[df_alertas['Mandamiento'] != "OK"]))
     st.write("---")
-    st.info("Utilice el menú lateral para acceder a los detalles.")
+    st.info("Navegue por los módulos laterales para gestionar el reparto o ver el inventario detallado.")
 
+# --- MÓDULO: INVENTARIO ---
 elif st.session_state.modulo_actual == "📋 Inventario":
     st.markdown("### 📋 Inventario de Alertas Activas")
     cols_v = ["No. Proceso", "Sustanciador", "Etapa Actual", "Mandamiento", "Fuerza Ejecutoria", "Medidas (Inm)", "Búsqueda Bienes"]
@@ -330,6 +385,7 @@ elif st.session_state.modulo_actual == "📋 Inventario":
     else:
         st.success("✅ Todo al día.")
 
+# --- MÓDULO: TOP 10 ---
 elif st.session_state.modulo_actual == "🚨 Top 10":
     st.markdown("### 🚨 Prioridad: Riesgo Fuerza Ejecutoria")
     df_p_fe = df_alertas[df_alertas['Vencimiento_Fuerza'].notna()].sort_values(by="Vencimiento_Fuerza")
@@ -344,6 +400,7 @@ elif st.session_state.modulo_actual == "🚨 Top 10":
     else:
         st.success("✅ Sin riesgos.")
 
+# --- MÓDULO: CRONOGRAMA ---
 elif st.session_state.modulo_actual == "🔎 Cronograma":
     st.markdown("### 🔎 Cronograma de Gestión: Búsqueda de Bienes")
     df_act = df_f[~df_f[col_estado].astype(str).str.upper().str.contains("ARCHIVADO", na=False)].copy()
